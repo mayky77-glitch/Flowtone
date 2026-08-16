@@ -10,6 +10,8 @@ SwiftUI App
         ├── StationConfiguration + PromptComposer
         ├── ModelRecommender + ResourcePolicy
         ├── GenerationScheduler (actor, one job)
+        ├── TrackTitleGenerator (local deterministic names)
+        ├── TrackLibrary (JSON index + local audio files)
         └── GenerationEngine
             ├── SyntheticAudioEngine (development only)
             └── StableAudioMLXEngine (official CLI process adapter)
@@ -37,6 +39,21 @@ swift run flowtone-spike \
 ```
 
 Synthetic engine создаёт простой stereo WAV 44.1 kHz. Его задача — проверить scheduler, file contract и playback без большой загрузки.
+
+## Local radio library
+
+Коллекция хранится в `~/Library/Application Support/Flowtone/Library`:
+
+```text
+Library/
+├── library-v1.json
+├── Audio/
+└── Incoming/
+```
+
+JSON index хранит название, жанры, лайк, размер, длительность, model engine, seed и playback history. При превышении лимита сначала удаляются самые давно не воспроизводившиеся треки без лайка. Лайкнутый и текущий трек защищены.
+
+Названия создаются локально и детерминированно из genre + energy + mood + vibe + seed. Это не требует отдельного запуска LLM. Старые index records без `title` получают стабильное fallback-название при декодировании.
 
 ## Stable Audio 3 Small MLX
 
@@ -82,8 +99,9 @@ sa3 --prompt <prompt> --negative-prompt <negative> \
 
 - Полный Xcode не установлен; SwiftPM build/test работает через Command Line Tools.
 - Настоящие model weights ещё не загружены и benchmark не запускался.
-- SwiftUI shell использует development preview, не Stable Audio output.
-- Нет постоянной библиотеки, crossfade buffer, model downloader и notarized app bundle.
+- SwiftUI app использует development synthetic engine, не Stable Audio output.
+- Очередь и повтор работают на уровне файлов; equal-power crossfade ещё нет.
+- Нет model downloader и notarized app bundle.
 - `MemoryPressure` пока является injectable contract; системный DispatchSource monitor появится в radio slice.
 
 ## Next implementation slice

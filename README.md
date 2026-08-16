@@ -14,6 +14,10 @@ Flowtone — бесплатное open-source приложение для macOS,
 - resource policy и последовательный generation scheduler;
 - synthetic WAV engine для end-to-end проверки без model weights;
 - process adapter для официального Stable Audio 3 MLX CLI;
+- непрерывная очередь из локальной коллекции с автоповтором;
+- статистика места по жанрам, лайки, удаление и массовая очистка;
+- локальные автоназвания из жанра, настроения, энергии и вайба;
+- 20 жанров и изменение настроек во время сессии;
 - CLI spike и unit tests.
 
 Настоящие model weights в репозиторий не входят и в текущем milestone не загружались.
@@ -35,8 +39,8 @@ Flowtone — бесплатное open-source приложение для macOS,
 
 1. Запустить Stable Audio 3 Small benchmark после принятия model terms.
 2. Подключить настоящий engine к UI вместо development preview.
-3. Реализовать непрерывный player с буфером и fallback на коллекцию.
-4. Добавить постоянную библиотеку и управление хранилищем.
+3. Заменить file-level transition на `AVAudioEngine` с буфером current + 2 ready и crossfade.
+4. Добавить model downloader и явный license gate.
 5. Собрать подписанный и notarized `.dmg`.
 
 ## Быстрый старт для разработки

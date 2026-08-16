@@ -33,6 +33,9 @@ struct FlowtoneRootView: View {
           .frame(maxWidth: .infinity, maxHeight: .infinity)
       }
     }
+    .sheet(isPresented: $model.isLibraryPresented) {
+      TrackLibraryView(model: model)
+    }
   }
 }
 
@@ -193,21 +196,21 @@ private struct NowPlayingStage: View {
       HStack {
         modelBadge
         Spacer()
-        Text("ПРОТОТИП 0")
-          .font(.system(size: 10, weight: .medium, design: .monospaced))
-          .tracking(1.4)
-          .foregroundStyle(FlowtonePalette.copper)
+        libraryBadge
       }
       .padding(28)
 
       Spacer()
 
       VinylBroadcastVisual(
-        isActive: model.isPlaying || model.isGenerating,
-        genreTitle: model.primaryGenreDisplayName
+        isSpinning: model.isPlaying || model.isGenerating,
+        isPlaying: model.isPlaying,
+        genreTitle: model.currentGenreDisplayName,
+        trackID: model.currentTrackID,
+        trackDurationSeconds: model.currentTrack?.durationSeconds ?? 120
       )
       .frame(maxWidth: 560)
-      .frame(height: 320)
+      .frame(height: 292)
 
       VStack(spacing: 8) {
         Text(model.isGenerating ? "СОЗДАЁТСЯ НОВАЯ ЗАПИСЬ" : "СЕЙЧАС В ЭФИРЕ")
@@ -215,9 +218,13 @@ private struct NowPlayingStage: View {
           .tracking(2)
           .foregroundStyle(FlowtonePalette.signal)
 
-        Text(model.generatedFileURL == nil ? "Тишина перед эфиром" : "Локальная запись")
+        Text(model.currentTrackTitle)
           .font(.system(size: 25, weight: .medium, design: .serif))
           .foregroundStyle(FlowtonePalette.ink)
+          .multilineTextAlignment(.center)
+          .lineLimit(2)
+          .minimumScaleFactor(0.75)
+          .frame(maxWidth: 520)
 
         Text(model.statusText)
           .font(.system(size: 12, design: .rounded))
@@ -226,17 +233,43 @@ private struct NowPlayingStage: View {
           .frame(maxWidth: 390)
       }
 
-      HStack(spacing: 14) {
+      HStack(spacing: 12) {
+        Button {
+          model.toggleCurrentLike()
+        } label: {
+          Image(systemName: model.isCurrentTrackLiked ? "heart.fill" : "heart")
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(
+              model.isCurrentTrackLiked ? FlowtonePalette.signal : FlowtonePalette.ink
+            )
+            .frame(width: 44, height: 44)
+            .background(FlowtonePalette.panel, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.currentTrack == nil)
+
         Button {
           model.togglePlayback()
         } label: {
           Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
             .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(FlowtonePalette.selectedInk)
             .frame(width: 48, height: 48)
+            .background(FlowtonePalette.signal, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.isLibraryLoading)
+
+        Button {
+          model.skipTrack()
+        } label: {
+          Image(systemName: "forward.end.fill")
+            .font(.system(size: 15, weight: .semibold))
+            .frame(width: 44, height: 44)
             .background(FlowtonePalette.panel, in: Circle())
         }
         .buttonStyle(.plain)
-        .disabled(model.generatedFileURL == nil)
+        .disabled(model.currentTrack == nil && !model.generationEnabled)
 
         Button {
           Task { await model.generateDevelopmentPreview() }
@@ -247,7 +280,7 @@ private struct NowPlayingStage: View {
             } else {
               Image(systemName: "waveform.badge.plus")
             }
-            Text(model.generatedFileURL == nil ? "Создать тестовую запись" : "Следующая запись")
+            Text(model.currentTrack == nil ? "Создать первую" : "Создать ещё")
           }
           .font(.system(size: 14, weight: .semibold, design: .rounded))
           .foregroundStyle(FlowtonePalette.canvas)
@@ -259,7 +292,18 @@ private struct NowPlayingStage: View {
         .buttonStyle(.plain)
         .disabled(!model.generationEnabled || model.isGenerating)
       }
-      .padding(.top, 34)
+      .padding(.top, 24)
+
+      HStack(spacing: 10) {
+        Image(systemName: "speaker.fill")
+        Slider(value: $model.volume, in: 0...1)
+          .tint(FlowtonePalette.signal)
+          .frame(width: 180)
+        Image(systemName: "speaker.wave.2.fill")
+      }
+      .font(.system(size: 10))
+      .foregroundStyle(FlowtonePalette.muted)
+      .padding(.top, 16)
 
       Spacer()
 
@@ -276,13 +320,24 @@ private struct NowPlayingStage: View {
 
   private var modelBadge: some View {
     VStack(alignment: .leading, spacing: 4) {
-      Text("РЕКОМЕНДОВАННАЯ МОДЕЛЬ")
+      Text("МОДЕЛЬ ГЕНЕРАЦИИ")
         .font(.system(size: 9, weight: .semibold, design: .monospaced))
         .tracking(1.1)
         .foregroundStyle(FlowtonePalette.muted)
-      Text(model.recommendedModelText)
-        .font(.system(size: 12, weight: .medium, design: .rounded))
-        .foregroundStyle(FlowtonePalette.ink)
+      Picker("", selection: $model.selectedModelTier) {
+        Text("Лёгкая · Stable Audio 3 Small").tag(ModelTier.light)
+        Text("Качество · ACE-Step").tag(ModelTier.quality)
+      }
+      .labelsHidden()
+      .pickerStyle(.menu)
+      .fixedSize()
+
+      if let warning = model.selectedModelWarning {
+        Text(warning)
+          .font(.system(size: 9, design: .rounded))
+          .foregroundStyle(FlowtonePalette.signal)
+          .frame(maxWidth: 250, alignment: .leading)
+      }
     }
     .padding(.horizontal, 14)
     .padding(.vertical, 10)
@@ -292,35 +347,293 @@ private struct NowPlayingStage: View {
         .stroke(FlowtonePalette.line, lineWidth: 1)
     }
   }
+
+  private var libraryBadge: some View {
+    Button {
+      model.isLibraryPresented = true
+    } label: {
+      VStack(alignment: .trailing, spacing: 4) {
+        HStack(spacing: 6) {
+          Image(systemName: "music.note.list")
+          Text("КОЛЛЕКЦИЯ")
+        }
+        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+        .tracking(1)
+        .foregroundStyle(FlowtonePalette.muted)
+
+        Text(model.librarySummaryText)
+          .font(.system(size: 12, weight: .medium, design: .rounded))
+          .foregroundStyle(FlowtonePalette.ink)
+      }
+      .padding(.horizontal, 14)
+      .padding(.vertical, 10)
+      .background(FlowtonePalette.panel, in: RoundedRectangle(cornerRadius: 12))
+      .overlay {
+        RoundedRectangle(cornerRadius: 12)
+          .stroke(FlowtonePalette.line, lineWidth: 1)
+      }
+    }
+    .buttonStyle(.plain)
+  }
+}
+
+private struct TrackLibraryView: View {
+  @ObservedObject var model: FlowtoneAppModel
+  @Environment(\.dismiss) private var dismiss
+  @State private var confirmsCleanup = false
+
+  private let columns = [GridItem(.flexible()), GridItem(.flexible())]
+
+  var body: some View {
+    VStack(spacing: 0) {
+      HStack(alignment: .top) {
+        VStack(alignment: .leading, spacing: 5) {
+          Text("ЛОКАЛЬНАЯ КОЛЛЕКЦИЯ")
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .tracking(1.5)
+            .foregroundStyle(FlowtonePalette.signal)
+          Text("Архив эфира")
+            .font(.system(size: 28, weight: .medium, design: .serif))
+            .foregroundStyle(FlowtonePalette.ink)
+          Text("Записи остаются на этом Mac")
+            .font(.system(size: 12, design: .rounded))
+            .foregroundStyle(FlowtonePalette.muted)
+        }
+
+        Spacer()
+
+        Button("Готово") { dismiss() }
+          .buttonStyle(.plain)
+          .font(.system(size: 13, weight: .semibold, design: .rounded))
+          .foregroundStyle(FlowtonePalette.signal)
+      }
+      .padding(28)
+
+      HStack(spacing: 12) {
+        libraryMetric(
+          title: "ВСЕГО",
+          value: "\(model.libraryStatistics.trackCount) треков",
+          detail: model.formatBytes(model.libraryStatistics.byteSize)
+        )
+        libraryMetric(
+          title: "ЛЮБИМЫЕ",
+          value: "\(model.libraryStatistics.likedTrackCount)",
+          detail: "защищены от очистки"
+        )
+
+        VStack(alignment: .leading, spacing: 7) {
+          Text("ЛИМИТ ХРАНИЛИЩА")
+            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+            .tracking(1)
+            .foregroundStyle(FlowtonePalette.muted)
+          Picker("", selection: $model.storageLimitGiB) {
+            ForEach([1, 5, 10, 20, 50], id: \.self) { value in
+              Text("\(value) ГБ").tag(value)
+            }
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
+          .onChange(of: model.storageLimitGiB) { _, _ in model.applyStorageLimit() }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(14)
+        .background(FlowtonePalette.panel, in: RoundedRectangle(cornerRadius: 12))
+        .overlay { RoundedRectangle(cornerRadius: 12).stroke(FlowtonePalette.line) }
+      }
+      .padding(.horizontal, 28)
+
+      if !model.libraryStatistics.genres.isEmpty {
+        VStack(alignment: .leading, spacing: 10) {
+          Text("ПО ЖАНРАМ")
+            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+            .tracking(1)
+            .foregroundStyle(FlowtonePalette.muted)
+
+          LazyVGrid(columns: columns, spacing: 8) {
+            ForEach(model.libraryStatistics.genres, id: \.genre) { item in
+              HStack {
+                Text(model.genreDisplayName(item.genre))
+                Spacer()
+                Text("\(item.trackCount) · \(model.formatBytes(item.byteSize))")
+                  .foregroundStyle(FlowtonePalette.muted)
+              }
+              .font(.system(size: 11, design: .rounded))
+              .foregroundStyle(FlowtonePalette.ink)
+              .padding(.horizontal, 12)
+              .frame(height: 34)
+              .background(
+                FlowtonePalette.panel.opacity(0.72), in: RoundedRectangle(cornerRadius: 9))
+            }
+          }
+        }
+        .padding(.horizontal, 28)
+        .padding(.top, 18)
+      }
+
+      Divider()
+        .overlay(FlowtonePalette.line)
+        .padding(.top, 18)
+
+      if model.tracks.isEmpty {
+        VStack(spacing: 9) {
+          Image(systemName: "music.note")
+            .font(.system(size: 24))
+            .foregroundStyle(FlowtonePalette.signal)
+          Text("Здесь появятся записи станции")
+            .font(.system(size: 15, weight: .medium, design: .serif))
+            .foregroundStyle(FlowtonePalette.ink)
+          Text("Создайте первую запись на главном экране")
+            .font(.system(size: 11, design: .rounded))
+            .foregroundStyle(FlowtonePalette.muted)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+      } else {
+        ScrollView {
+          LazyVStack(spacing: 1) {
+            ForEach(model.tracks) { track in
+              trackRow(track)
+            }
+          }
+          .padding(.vertical, 8)
+        }
+      }
+
+      HStack {
+        Text("Лайкнутые записи не удаляются автоматически")
+          .font(.system(size: 10, design: .rounded))
+          .foregroundStyle(FlowtonePalette.muted)
+        Spacer()
+        Button("Удалить всё без лайка") { confirmsCleanup = true }
+          .buttonStyle(.plain)
+          .font(.system(size: 11, weight: .semibold, design: .rounded))
+          .foregroundStyle(FlowtonePalette.signal)
+          .disabled(model.libraryStatistics.trackCount == model.libraryStatistics.likedTrackCount)
+      }
+      .padding(20)
+      .background(FlowtonePalette.sidebar)
+    }
+    .frame(minWidth: 700, minHeight: 650)
+    .background(FlowtonePalette.canvas)
+    .preferredColorScheme(.dark)
+    .confirmationDialog(
+      "Удалить все записи без лайка?",
+      isPresented: $confirmsCleanup,
+      titleVisibility: .visible
+    ) {
+      Button("Удалить", role: .destructive) { model.removeAllUnliked() }
+      Button("Отмена", role: .cancel) {}
+    } message: {
+      Text("Текущая запись доиграет. Остальные файлы без лайка будут удалены с Mac.")
+    }
+  }
+
+  private func libraryMetric(title: String, value: String, detail: String) -> some View {
+    VStack(alignment: .leading, spacing: 4) {
+      Text(title)
+        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+        .tracking(1)
+        .foregroundStyle(FlowtonePalette.muted)
+      Text(value)
+        .font(.system(size: 16, weight: .medium, design: .serif))
+        .foregroundStyle(FlowtonePalette.ink)
+      Text(detail)
+        .font(.system(size: 9, design: .rounded))
+        .foregroundStyle(FlowtonePalette.muted)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(14)
+    .background(FlowtonePalette.panel, in: RoundedRectangle(cornerRadius: 12))
+    .overlay { RoundedRectangle(cornerRadius: 12).stroke(FlowtonePalette.line) }
+  }
+
+  private func trackRow(_ track: TrackRecord) -> some View {
+    HStack(spacing: 12) {
+      Circle()
+        .fill(track.id == model.currentTrackID ? FlowtonePalette.signal : FlowtonePalette.orbit)
+        .frame(width: 7, height: 7)
+
+      VStack(alignment: .leading, spacing: 3) {
+        Text(track.title)
+          .font(.system(size: 12, weight: .semibold, design: .rounded))
+          .foregroundStyle(FlowtonePalette.ink)
+          .lineLimit(1)
+        Text(track.createdAt.formatted(date: .abbreviated, time: .shortened))
+          .font(.system(size: 9, design: .monospaced))
+          .foregroundStyle(FlowtonePalette.muted)
+      }
+
+      Text(track.genres.map(model.genreDisplayName).joined(separator: ", "))
+        .font(.system(size: 11, design: .rounded))
+        .foregroundStyle(FlowtonePalette.muted)
+        .frame(maxWidth: .infinity, alignment: .leading)
+
+      Text(model.formatBytes(track.byteSize))
+        .font(.system(size: 10, design: .monospaced))
+        .foregroundStyle(FlowtonePalette.muted)
+        .frame(width: 70, alignment: .trailing)
+
+      Button {
+        model.toggleLike(trackID: track.id)
+      } label: {
+        Image(systemName: track.isLiked ? "heart.fill" : "heart")
+          .foregroundStyle(track.isLiked ? FlowtonePalette.signal : FlowtonePalette.muted)
+      }
+      .buttonStyle(.plain)
+
+      Button {
+        model.deleteTrack(trackID: track.id)
+      } label: {
+        Image(systemName: "trash")
+          .foregroundStyle(FlowtonePalette.muted)
+      }
+      .buttonStyle(.plain)
+      .disabled(track.id == model.currentTrackID)
+      .help(track.id == model.currentTrackID ? "Текущая запись должна доиграть" : "Удалить запись")
+    }
+    .padding(.horizontal, 28)
+    .frame(height: 54)
+    .background(track.id == model.currentTrackID ? FlowtonePalette.panel.opacity(0.72) : .clear)
+  }
 }
 
 private struct VinylBroadcastVisual: View {
-  let isActive: Bool
+  let isSpinning: Bool
+  let isPlaying: Bool
   let genreTitle: String
+  let trackID: UUID?
+  let trackDurationSeconds: Int
+
+  @State private var playbackStartedAt = Date()
 
   var body: some View {
-    TimelineView(.animation(minimumInterval: 1 / 30, paused: !isActive)) { timeline in
+    TimelineView(.animation(minimumInterval: 1 / 30, paused: !isSpinning)) { timeline in
       let seconds = timeline.date.timeIntervalSinceReferenceDate
+      let elapsed = max(0, timeline.date.timeIntervalSince(playbackStartedAt))
+      let grooveProgress = min(elapsed / Double(max(trackDurationSeconds, 1)), 1)
       ZStack {
-        HStack(spacing: -8) {
+        HStack(spacing: -18) {
           VinylRecord(
-            angle: isActive ? seconds * 24 : 0,
+            angle: isSpinning ? seconds * 24 : 0,
             genreTitle: genreTitle
           )
           .frame(width: 305, height: 305)
 
-          ToneArm(isActive: isActive)
+          ToneArm(isActive: isPlaying, grooveProgress: grooveProgress)
             .frame(width: 88, height: 250)
-            .offset(y: -6)
+            .offset(x: -8, y: -6)
         }
       }
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
-      isActive
+      isSpinning
         ? "Пластинка вращается, жанр \(genreTitle)"
         : "Пластинка остановлена, жанр \(genreTitle)"
     )
+    .onChange(of: trackID) { _, _ in playbackStartedAt = Date() }
+    .onChange(of: isPlaying) { _, playing in
+      if playing { playbackStartedAt = Date() }
+    }
   }
 }
 
@@ -355,6 +668,11 @@ private struct VinylRecord: View {
             )
           )
           .blendMode(.screen)
+
+        Capsule()
+          .fill(FlowtonePalette.signalBright.opacity(0.58))
+          .frame(width: 3, height: 34)
+          .offset(y: -112)
       }
       .rotationEffect(.degrees(angle))
 
@@ -381,6 +699,7 @@ private struct VinylRecord: View {
           .foregroundStyle(FlowtonePalette.selectedInk)
           .padding(.horizontal, 12)
         }
+        .rotationEffect(.degrees(angle))
 
       Circle()
         .fill(FlowtonePalette.canvasBottom)
@@ -394,6 +713,13 @@ private struct VinylRecord: View {
 
 private struct ToneArm: View {
   let isActive: Bool
+  let grooveProgress: Double
+
+  private var angle: Double {
+    guard isActive else { return -7 }
+    // The pickup starts at the outer edge and slowly travels left, toward the record centre.
+    return 10 + (grooveProgress * 12)
+  }
 
   var body: some View {
     ZStack(alignment: .top) {
@@ -402,25 +728,26 @@ private struct ToneArm: View {
         .frame(width: 42, height: 42)
         .overlay { Circle().stroke(FlowtonePalette.copper, lineWidth: 2) }
 
-      Capsule()
-        .fill(
-          LinearGradient(
-            colors: [FlowtonePalette.ink.opacity(0.82), FlowtonePalette.copper],
-            startPoint: .leading,
-            endPoint: .trailing
+      VStack(spacing: -2) {
+        Capsule()
+          .fill(
+            LinearGradient(
+              colors: [FlowtonePalette.ink.opacity(0.82), FlowtonePalette.copper],
+              startPoint: .leading,
+              endPoint: .trailing
+            )
           )
-        )
-        .frame(width: 8, height: 184)
-        .rotationEffect(.degrees(isActive ? 14 : 3), anchor: .top)
-        .offset(y: 26)
-        .animation(.spring(response: 0.7, dampingFraction: 0.72), value: isActive)
+          .frame(width: 8, height: 184)
 
-      RoundedRectangle(cornerRadius: 3)
-        .fill(FlowtonePalette.signal)
-        .frame(width: 25, height: 14)
-        .rotationEffect(.degrees(isActive ? 14 : 3))
-        .offset(x: isActive ? 43 : 10, y: 208)
-        .animation(.spring(response: 0.7, dampingFraction: 0.72), value: isActive)
+        RoundedRectangle(cornerRadius: 3)
+          .fill(FlowtonePalette.signal)
+          .frame(width: 25, height: 14)
+          .rotationEffect(.degrees(5))
+          .offset(x: 7)
+      }
+      .rotationEffect(.degrees(angle), anchor: .top)
+      .offset(y: 26)
+      .animation(.spring(response: 0.7, dampingFraction: 0.72), value: isActive)
     }
   }
 }

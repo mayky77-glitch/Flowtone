@@ -6,7 +6,17 @@ Flowtone — бесплатное open-source приложение для macOS,
 
 ## Статус
 
-Проект находится на стадии планирования. Код приложения ещё не создан.
+Реализован первый development slice:
+
+- нативный SwiftUI shell;
+- core-модели станции и prompt composer;
+- рекомендация model tier по памяти Mac;
+- resource policy и последовательный generation scheduler;
+- synthetic WAV engine для end-to-end проверки без model weights;
+- process adapter для официального Stable Audio 3 MLX CLI;
+- CLI spike и unit tests.
+
+Настоящие model weights в репозиторий не входят и в текущем milestone не загружались.
 
 - [Product Requirements Document](docs/PRD.md)
 - Целевая платформа: Apple Silicon M1 и новее
@@ -23,11 +33,25 @@ Flowtone — бесплатное open-source приложение для macOS,
 
 ## План
 
-1. Benchmark моделей на нескольких Apple Silicon Mac.
-2. Proof of concept: локальная генерация одного трека.
-3. Непрерывный player с буфером и fallback на локальную коллекцию.
-4. Model Manager, настройка станции и управление хранилищем.
-5. Подписанный и notarized `.dmg` через GitHub Releases.
+1. Запустить Stable Audio 3 Small benchmark после принятия model terms.
+2. Подключить настоящий engine к UI вместо development preview.
+3. Реализовать непрерывный player с буфером и fallback на коллекцию.
+4. Добавить постоянную библиотеку и управление хранилищем.
+5. Собрать подписанный и notarized `.dmg`.
+
+## Быстрый старт для разработки
+
+Требования: Apple Silicon Mac, macOS 14+, Swift 6.3 Command Line Tools.
+
+```bash
+swift build
+swift test
+swift run flowtone-spike --hardware
+swift run flowtone-spike --engine synthetic --duration 5
+swift run Flowtone
+```
+
+Подключение настоящего Stable Audio описано в [implementation guide](docs/IMPLEMENTATION.md).
 
 ## Лицензирование
 

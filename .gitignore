@@ -1,0 +1,16 @@
+.DS_Store
+.env
+.swiftpm/
+.build/
+DerivedData/
+xcuserdata/
+
+# Local models and generated audio must never enter Git.
+Models/
+GeneratedAudio/
+*.ckpt
+*.safetensors
+
+# Local Codex project memory.
+AGENTS.md
+knowledge/

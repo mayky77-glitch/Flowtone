@@ -1,0 +1,26 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Lint Swift format
+        run: swift format lint --recursive Package.swift Sources Tests
+      - name: Run tests
+        run: swift test
+      - name: Build release executable
+        run: swift build -c release --product Flowtone
+      - name: Package unsigned app
+        shell: bash
+        run: |
+          package_root="$(mktemp -d)"
+          trap 'rm -rf "$package_root"' EXIT
+          scripts/package-app.sh "$package_root/output"

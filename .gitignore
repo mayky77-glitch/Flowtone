@@ -14,3 +14,4 @@ GeneratedAudio/
 # Local Codex project memory.
 AGENTS.md
 knowledge/
+.codex/

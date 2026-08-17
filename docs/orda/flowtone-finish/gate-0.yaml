@@ -1,0 +1,28 @@
+status: frozen
+work_id: flowtone-finish
+objective: Complete all safe Flowtone runtime work that does not require accepting gated model terms or signing credentials.
+project_root: /Users/x/Documents/ChatGPT/радио
+published_base_sha: gate0-card-commit
+wave_base_sha: gate0-card-commit
+shared_contract_sha: a2ef3c4cd80e5778be7b8204bb01b531fc54035c
+wave: 1
+max_parallel: 3
+max_spawns: 5
+max_retries: 1
+merge_method: merge-no-ff
+baseline_commands:
+  - swift format lint --recursive Package.swift Sources Tests
+  - swift test
+  - swift build -c release
+  - git diff --check
+baseline_results:
+  - format lint passed
+  - 18 tests in 6 suites passed
+  - release build passed
+  - diff check passed
+shared_paths_owner: integration
+data_classification: restricted
+created_at: 2026-08-17T01:20:00+08:00
+notes:
+  - Exact published base is the commit containing this frozen manifest and cards; the Orda launch envelope records its immutable SHA.
+  - Gated weights, credentials, signing, notarization, destructive cleanup, and external communication are outside Gate 0.

@@ -258,7 +258,7 @@ public final class AudioPlaybackController {
     currentStartPosition = target
 
     let now = clock.now
-    let shouldPreview = lastScrubPreviewAt == nil || now - (lastScrubPreviewAt ?? 0) >= 0.08
+    let shouldPreview = lastScrubPreviewAt == nil || now - (lastScrubPreviewAt ?? 0) >= 0.05
     guard shouldPreview else { return }
 
     let previewNode = scrubPreviewNode?.other ?? activeNode
@@ -497,7 +497,9 @@ public final class AVAudioEnginePlaybackBackend: AudioPlaybackBackend {
   ) throws {
     let file = try AVAudioFile(forReading: item.fileURL)
     let format = file.processingFormat
-    let previewFrames = AVAudioFramePosition(max(256, Int(format.sampleRate * 0.22)))
+    // Short overlapping grains follow the hand more closely than long preview
+    // chunks and avoid the flanging produced by two 220 ms fragments colliding.
+    let previewFrames = AVAudioFramePosition(max(256, Int(format.sampleRate * 0.11)))
     let targetFrame = min(
       max(0, AVAudioFramePosition(position * format.sampleRate)),
       max(0, file.length - 1)
@@ -521,7 +523,7 @@ public final class AVAudioEnginePlaybackBackend: AudioPlaybackBackend {
     if direction == .backward { Self.reverse(buffer) }
     Self.applyScratchEnvelope(buffer)
 
-    speed(for: node).rate = direction == .backward ? 0.92 : 1.08
+    speed(for: node).rate = 1
 
     let player = player(for: node)
     player.scheduleBuffer(buffer, at: nil, options: .interrupts)
@@ -602,7 +604,7 @@ public final class AVAudioEnginePlaybackBackend: AudioPlaybackBackend {
   private static func applyScratchEnvelope(_ buffer: AVAudioPCMBuffer) {
     let frameCount = Int(buffer.frameLength)
     let channelCount = Int(buffer.format.channelCount)
-    let edge = min(frameCount / 4, max(32, Int(buffer.format.sampleRate * 0.035)))
+    let edge = min(frameCount / 4, max(32, Int(buffer.format.sampleRate * 0.012)))
     guard edge > 0 else { return }
 
     func gain(_ index: Int) -> Double {

@@ -1419,7 +1419,15 @@ private struct VinylBroadcastVisual: View {
     DragGesture(minimumDistance: 0)
       .onChanged { value in
         let center = CGPoint(x: recordDiameter / 2, y: recordDiameter / 2)
-        let angle = atan2(value.location.y - center.y, value.location.x - center.x)
+        let horizontal = value.location.x - center.x
+        let vertical = value.location.y - center.y
+        let radius = hypot(horizontal, vertical)
+
+        // atan2 becomes unstable next to the spindle and can turn a tiny pointer
+        // movement into a half-record jump. Keep the last stable angle until the
+        // pointer leaves that small dead zone.
+        guard radius >= recordDiameter * 0.1 else { return }
+        let angle = atan2(vertical, horizontal)
 
         guard let previousAngle = lastDragAngle else {
           dragPosition = positionSeconds
@@ -1433,11 +1441,18 @@ private struct VinylBroadcastVisual: View {
         if delta > .pi { delta -= 2 * .pi }
         if delta < -.pi { delta += 2 * .pi }
 
+        // A single pointer event must not skip a large part of the track. Normal
+        // circular dragging remains 1:1 while sparse or lost events recover
+        // smoothly on the following frames.
+        delta = min(max(delta, -.pi / 6), .pi / 6)
+        guard abs(delta) >= 0.001 else { return }
+
         let target = min(max(dragPosition + delta / (2 * .pi) * 8, 0), durationSeconds)
         let direction: AudioScrubDirection = delta >= 0 ? .forward : .backward
         dragPosition = target
         dragVisualAngle += delta * 180 / .pi
-        lastDragAngle = angle
+        let acceptedAngle = previousAngle + delta
+        lastDragAngle = atan2(sin(acceptedAngle), cos(acceptedAngle))
         onScrubChanged(target, direction)
       }
       .onEnded { _ in

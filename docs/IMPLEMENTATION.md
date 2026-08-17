@@ -76,7 +76,7 @@ Player поддерживает seek, начало/конец, ±15 секунд
 - Stable Audio работает отдельным process на один трек. При выключении генерации process отменяется, после завершения модели не остаются резидентными в приложении.
 - Synthetic smoke engine пишет WAV блоками по 4096 frames в `.partial`, а не держит весь двухминутный файл в RAM.
 - До старта проверяются thermal state, Low Power Mode и memory pressure. Сигнал памяти во время работы отменяет job, дожидается process termination и чистит `Incoming/`; playback продолжается.
-- Аудиодвижок держит только current/next scheduling state; scratch загружает примерно 220 мс PCM. Library rows и genre statistics используют lazy containers.
+- Аудиодвижок держит только current/next scheduling state; scratch загружает примерно 110 мс PCM с 12-мс envelope и меняет grain не чаще раза в 50 мс. Library rows и genre statistics используют lazy containers.
 - Кольца винила рисуются одним `Canvas`, а не отдельной иерархией shape views. Marquee работает на 15 fps, винил — на 60 fps только пока окно видно и трек играет.
 - Единственные циклы ограничены размером очереди, числом WAV frames или количеством UI-дорожек; бесконечного polling loop нет.
 

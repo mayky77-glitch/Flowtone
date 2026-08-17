@@ -72,4 +72,15 @@ import Testing
       return
     }
   }
+
+  @Test func schedulerCanReplaceItsGenerationEngine() async {
+    let scheduler = GenerationScheduler(engine: SyntheticAudioEngine())
+    let stableAudio = StableAudioMLXEngine(
+      executableURL: URL(fileURLWithPath: "/tmp/stable-audio-mlx"))
+
+    await scheduler.replaceEngine(stableAudio)
+
+    #expect(await scheduler.engineDescriptor == stableAudio.descriptor)
+    #expect(await scheduler.state == .idle)
+  }
 }

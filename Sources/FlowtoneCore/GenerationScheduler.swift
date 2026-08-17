@@ -11,7 +11,7 @@ public actor GenerationScheduler {
   public private(set) var state: SchedulerState = .idle
   public var generationEnabled = true
 
-  private let engine: any GenerationEngine
+  private var engine: any GenerationEngine
   private let resourcePolicy: ResourcePolicy
   private var consecutiveFailures = 0
 
@@ -21,6 +21,14 @@ public actor GenerationScheduler {
   ) {
     self.engine = engine
     self.resourcePolicy = resourcePolicy
+  }
+
+  public var engineDescriptor: EngineDescriptor { engine.descriptor }
+
+  public func replaceEngine(_ engine: any GenerationEngine) {
+    self.engine = engine
+    consecutiveFailures = 0
+    state = generationEnabled ? .idle : .deferred(reason: "Генерация выключена.")
   }
 
   public func setGenerationEnabled(_ enabled: Bool) {

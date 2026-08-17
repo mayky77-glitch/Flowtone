@@ -12,6 +12,10 @@ SwiftUI App
         ├── GenerationScheduler (actor, one job)
         ├── TrackTitleGenerator (local deterministic names)
         ├── TrackLibrary (JSON index + local audio files)
+        ├── RadioPlaybackQueue (current + 2 ready)
+        ├── AudioPlaybackController (two AVAudioPlayerNode instances)
+        ├── EqualPowerCrossfade
+        ├── ModelRuntimeCatalog
         └── GenerationEngine
             ├── SyntheticAudioEngine (development only)
             └── StableAudioMLXEngine (official CLI process adapter)
@@ -53,6 +57,10 @@ Library/
 
 JSON index хранит название, жанры, лайк, размер, длительность, model engine, seed и playback history. При превышении лимита сначала удаляются самые давно не воспроизводившиеся треки без лайка. Лайкнутый и текущий трек защищены.
 
+Текущий и оба подготовленных трека защищены от ручной и автоматической очистки. Player заранее
+планирует следующий файл, а `AudioPlaybackController` определяет момент перехода по render time.
+SwiftUI-таймер только вызывает наблюдение за render clock; он не рассчитывает позицию аудио.
+
 Названия создаются локально и детерминированно из genre + energy + mood + vibe + seed. Это не требует отдельного запуска LLM. Старые index records без `title` получают стабильное fallback-название при декодировании.
 
 ## Stable Audio 3 Small MLX
@@ -87,6 +95,19 @@ swift run flowtone-spike \
   --vibe "rain outside"
 ```
 
+Чтобы SwiftUI-приложение обнаружило runtime, создайте исполняемый файл или симлинк по фиксированному
+локальному пути (веса в репозиторий не копируются):
+
+```bash
+mkdir -p "$HOME/Library/Application Support/Flowtone"
+ln -s "/absolute/path/to/stable-audio-3/optimized/mlx/sa3" \
+  "$HOME/Library/Application Support/Flowtone/stable-audio-mlx"
+```
+
+Release-приложение не включает synthetic fallback. Если executable отсутствует или не имеет права
+на запуск, интерфейс честно показывает, что Stable Audio 3 не установлена, и продолжает играть
+готовую локальную коллекцию. Quality tier пока показывает явный статус отсутствующего ACE-Step adapter.
+
 Официальный CLI contract, который формирует adapter:
 
 ```text
@@ -99,14 +120,23 @@ sa3 --prompt <prompt> --negative-prompt <negative> \
 
 - Полный Xcode не установлен; SwiftPM build/test работает через Command Line Tools.
 - Настоящие model weights ещё не загружены и benchmark не запускался.
-- SwiftUI app использует development synthetic engine, не Stable Audio output.
-- Очередь и повтор работают на уровне файлов; equal-power crossfade ещё нет.
-- Нет model downloader и notarized app bundle.
-- `MemoryPressure` пока является injectable contract; системный DispatchSource monitor появится в radio slice.
+- Нет model downloader, license acceptance UI и checksum verification.
+- ACE-Step quality adapter ещё не реализован.
+- Скрипт создаёт рабочий, но неподписанный `.app`; notarized `.dmg` требует Apple Developer credentials.
+- Системная memory-pressure защита подключена через `DispatchSource`; её пороги остаются системными.
 
 ## Next implementation slice
 
 1. Воспроизводимый Stable Audio benchmark: 5/30/120 секунд, wall time, peak RSS, thermal state.
-2. Model installation state и явный license gate.
-3. Подмена synthetic engine на Stable Audio adapter через app configuration.
-4. `AVAudioEngine` playback queue: current + 2 ready, equal-power crossfade.
+2. Model downloader, installation state, checksum и явный license gate.
+3. Системный memory-pressure monitor и длительный 10-часовой soak test.
+4. Подписанный/notarized `.dmg` после выбора source license и получения credentials.
+
+## Unsigned app bundle
+
+```bash
+scripts/package-app.sh /tmp/flowtone-package
+open /tmp/flowtone-package/Flowtone.app
+```
+
+Скрипт отказывается перезаписывать существующий bundle и не выполняет signing или notarization.

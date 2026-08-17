@@ -175,6 +175,14 @@ public final class AudioPlaybackController {
     applyGains(progress: progress)
   }
 
+  /// Updates the duration used for the next transition without reloading either node.
+  public func setCrossfadeDuration(_ duration: TimeInterval) throws {
+    guard duration.isFinite, duration >= 0 else {
+      throw AudioPlaybackControllerError.invalidCrossfadeDuration
+    }
+    requestedCrossfadeDuration = duration
+  }
+
   /// Replaces the pre-scheduled next item without changing the current item.
   public func replaceNext(with item: AudioPlaybackItem?) throws {
     guard currentItem != nil else { throw AudioPlaybackControllerError.missingCurrentItem }
@@ -229,7 +237,9 @@ public final class AudioPlaybackController {
     min(requestedCrossfadeDuration, currentDuration)
   }
 
-  private func schedule(_ item: AudioPlaybackItem, on node: AudioPlaybackNode) throws -> TimeInterval {
+  private func schedule(_ item: AudioPlaybackItem, on node: AudioPlaybackNode) throws
+    -> TimeInterval
+  {
     let duration = try backend.schedule(item, on: node)
     guard duration.isFinite, duration > 0 else {
       throw AudioPlaybackControllerError.invalidScheduledDuration
@@ -297,7 +307,8 @@ public final class AVAudioEnginePlaybackBackend: AudioPlaybackBackend {
     engine.connect(secondary, to: engine.mainMixerNode, format: nil)
   }
 
-  public func schedule(_ item: AudioPlaybackItem, on node: AudioPlaybackNode) throws -> TimeInterval {
+  public func schedule(_ item: AudioPlaybackItem, on node: AudioPlaybackNode) throws -> TimeInterval
+  {
     let file = try AVAudioFile(forReading: item.fileURL)
     let duration = Double(file.length) / file.processingFormat.sampleRate
     player(for: node).scheduleFile(file, at: nil)
@@ -312,7 +323,9 @@ public final class AVAudioEnginePlaybackBackend: AudioPlaybackBackend {
   public func play(_ node: AudioPlaybackNode) { player(for: node).play() }
   public func pause(_ node: AudioPlaybackNode) { player(for: node).pause() }
   public func stop(_ node: AudioPlaybackNode) { player(for: node).stop() }
-  public func setVolume(_ volume: Float, on node: AudioPlaybackNode) { player(for: node).volume = volume }
+  public func setVolume(_ volume: Float, on node: AudioPlaybackNode) {
+    player(for: node).volume = volume
+  }
 
   public func renderedSeconds(for node: AudioPlaybackNode) -> TimeInterval? {
     let player = player(for: node)

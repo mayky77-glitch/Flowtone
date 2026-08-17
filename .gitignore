@@ -4,6 +4,7 @@
 .build/
 DerivedData/
 xcuserdata/
+dist/
 
 # Local models and generated audio must never enter Git.
 Models/

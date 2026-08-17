@@ -1,10 +1,9 @@
-import AVFoundation
 import Combine
 import FlowtoneCore
 import Foundation
 
 @MainActor
-final class FlowtoneAppModel: NSObject, ObservableObject, AVAudioPlayerDelegate {
+final class FlowtoneAppModel: ObservableObject {
   static let availableGenres = [
     "Ambient", "Lo-fi", "Light Rave", "Fantasy", "Rock", "Metal", "Thrash Metal", "Cute",
     "Chaos", "Electronic", "Synthwave", "House", "Techno", "Drum and Bass", "Hip-hop", "Funk",
@@ -33,9 +32,15 @@ final class FlowtoneAppModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
       }
     }
   }
-  @Published var selectedModelTier: ModelTier
+  @Published var selectedModelTier: ModelTier {
+    didSet {
+      generationRuntimeReady = false
+      modelRuntimeStatusText = "Переключаю локальный движок…"
+      Task { await configureGenerationRuntime() }
+    }
+  }
   @Published var volume = 0.72 {
-    didSet { audioPlayer?.volume = Float(volume) }
+    didSet { playbackController.setVolume(Float(volume)) }
   }
   @Published var storageLimitGiB: Int {
     didSet { UserDefaults.standard.set(storageLimitGiB, forKey: Self.storageLimitKey) }
@@ -48,17 +53,50 @@ final class FlowtoneAppModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
   @Published private(set) var isGenerating = false
   @Published private(set) var isPlaying = false
   @Published private(set) var isLibraryLoading = true
+  @Published private(set) var generationRuntimeReady = false
+  @Published private(set) var modelRuntimeStatusText = "Проверяю локальную модель…"
 
   let hardware = HardwareProfile.current
   let hardwareSupport: HardwareSupport
 
   private static let storageLimitKey = "Flowtone.storageLimitGiB"
+  private static let requestedCrossfadeSeconds: TimeInterval = 6
+  #if DEBUG
+    private static let developmentAudioEnabled = true
+  #else
+    private static let developmentAudioEnabled = false
+  #endif
+
   private let library: TrackLibrary
   private let scheduler: GenerationScheduler
-  private var audioPlayer: AVAudioPlayer?
+  private let modelCatalog = ModelRuntimeCatalog()
+  private let crossfade = EqualPowerCrossfade()
+  private var playbackQueue = RadioPlaybackQueue()
+  private var isPreparingNext = false
   private var generationCursor = 0
 
-  override init() {
+  private lazy var playbackController: AudioPlaybackController = {
+    let curve = EqualPowerCrossfade()
+    return AudioPlaybackController(
+      backend: AVAudioEnginePlaybackBackend(),
+      gainProvider: { progress in
+        let gains = curve.gains(for: progress)
+        return (Float(gains.outgoing), Float(gains.incoming))
+      },
+      onTransition: { [weak self] outgoingID, incomingID in
+        Task { @MainActor [weak self] in
+          await self?.didTransition(from: outgoingID, to: incomingID)
+        }
+      },
+      onNextNeeded: { [weak self] currentID in
+        Task { @MainActor [weak self] in
+          await self?.prepareNextPlaybackItem(for: currentID)
+        }
+      }
+    )
+  }()
+
+  init() {
     let support = ModelRecommender().recommendation(for: .current)
     hardwareSupport = support
     selectedModelTier = {
@@ -69,8 +107,10 @@ final class FlowtoneAppModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     storageLimitGiB = max(1, savedStorageLimit ?? 5)
     library = TrackLibrary(rootDirectory: Self.libraryRootDirectory)
     scheduler = GenerationScheduler(engine: SyntheticAudioEngine())
-    super.init()
-    Task { await bootstrapLibrary() }
+    Task {
+      await configureGenerationRuntime()
+      await bootstrapLibrary()
+    }
   }
 
   var recommendedModelText: String {
@@ -86,6 +126,8 @@ final class FlowtoneAppModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
   }
 
   var selectedModelText: String { modelName(for: selectedModelTier) }
+
+  var canGenerateTrack: Bool { generationEnabled && generationRuntimeReady }
 
   var selectedModelWarning: String? {
     guard selectedModelTier == .quality, hardware.memoryGiB < 24 else { return nil }
@@ -132,15 +174,19 @@ final class FlowtoneAppModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
   }
 
   func togglePlayback() {
-    if let audioPlayer {
-      if audioPlayer.isPlaying {
-        audioPlayer.pause()
+    if playbackController.currentID != nil {
+      if playbackController.isPlaying {
+        playbackController.pause()
         isPlaying = false
         statusText = "Пауза"
       } else {
-        audioPlayer.play()
-        isPlaying = true
-        statusText = "Станция в эфире"
+        do {
+          try playbackController.play()
+          isPlaying = true
+          statusText = "Станция в эфире"
+        } catch {
+          statusText = error.localizedDescription
+        }
       }
     } else {
       Task { await startStation() }
@@ -152,7 +198,23 @@ final class FlowtoneAppModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
   }
 
   func skipTrack() {
-    Task { await advanceStation(forceNewTrack: true) }
+    Task {
+      await prepareNextPlaybackItem(for: currentTrackID)
+      do {
+        try playbackController.skip()
+      } catch {
+        statusText = error.localizedDescription
+      }
+    }
+  }
+
+  func updatePlayback() {
+    playbackController.update()
+    isPlaying = playbackController.isPlaying
+  }
+
+  func isTrackProtected(_ trackID: UUID) -> Bool {
+    playbackQueue.protectedTrackIDs.contains(trackID)
   }
 
   func toggleCurrentLike() {
@@ -168,17 +230,13 @@ final class FlowtoneAppModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
   func deleteTrack(trackID: UUID) {
     Task {
       do {
-        let wasCurrent = currentTrackID == trackID
-        if wasCurrent {
-          audioPlayer?.stop()
-          audioPlayer = nil
-          currentTrackID = nil
-          isPlaying = false
+        guard !playbackQueue.protectedTrackIDs.contains(trackID) else {
+          statusText = "Текущая или подготовленная запись должна доиграть"
+          return
         }
         _ = try await library.removeTrack(trackID: trackID)
         try await refreshLibrary()
         statusText = "Запись удалена"
-        if wasCurrent { await advanceStation(forceNewTrack: false) }
       } catch {
         statusText = error.localizedDescription
       }
@@ -188,8 +246,8 @@ final class FlowtoneAppModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
   func removeAllUnliked() {
     Task {
       do {
-        let protectedIDs = currentTrackID.map { Set([$0]) } ?? []
-        let report = try await library.removeAllUnliked(protectedTrackIDs: protectedIDs)
+        let report = try await library.removeAllUnliked(
+          protectedTrackIDs: playbackQueue.protectedTrackIDs)
         try await refreshLibrary()
         statusText =
           report.removedTrackCount == 0
@@ -212,18 +270,6 @@ final class FlowtoneAppModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     }
   }
 
-  nonisolated func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
-    Task { @MainActor [weak self] in
-      guard let self else { return }
-      isPlaying = false
-      if flag {
-        await advanceStation(forceNewTrack: false)
-      } else {
-        statusText = "Не удалось завершить воспроизведение"
-      }
-    }
-  }
-
   private func bootstrapLibrary() async {
     do {
       _ = try await library.load()
@@ -232,6 +278,7 @@ final class FlowtoneAppModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
       if let track = try await library.randomCompatibleTrack(genres: selectedGenres) {
         try await play(track)
         statusText = "Станция запущена из локальной коллекции"
+        if canGenerateTrack { Task { await generateTrack(playWhenReady: false) } }
       } else {
         statusText = "Коллекция пуста · создайте первую запись"
       }
@@ -245,10 +292,12 @@ final class FlowtoneAppModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
     do {
       if let track = try await library.randomCompatibleTrack(genres: selectedGenres) {
         try await play(track)
-      } else if generationEnabled {
+        if canGenerateTrack { Task { await generateTrack(playWhenReady: false) } }
+      } else if canGenerateTrack {
         await generateTrack(playWhenReady: true)
       } else {
-        statusText = "Коллекция пуста, а генерация выключена"
+        statusText =
+          generationEnabled ? modelRuntimeStatusText : "Коллекция пуста, а генерация выключена"
       }
     } catch {
       statusText = error.localizedDescription
@@ -256,7 +305,10 @@ final class FlowtoneAppModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
   }
 
   private func generateTrack(playWhenReady: Bool) async {
-    guard generationEnabled, !isGenerating else { return }
+    guard canGenerateTrack, !isGenerating else {
+      if generationEnabled, !generationRuntimeReady { statusText = modelRuntimeStatusText }
+      return
+    }
     isGenerating = true
     statusText = "Создаю новую локальную запись…"
     defer { isGenerating = false }
@@ -269,7 +321,7 @@ final class FlowtoneAppModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
       let outputDirectory = await library.incomingDirectory
       let audio = try await scheduler.generateNext(
         configuration: configuration,
-        durationSeconds: 8,
+        durationSeconds: 120,
         seed: UInt64.random(in: 1...UInt64.max),
         outputDirectory: outputDirectory,
         resources: .current
@@ -285,36 +337,14 @@ final class FlowtoneAppModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
       if playWhenReady || currentTrackID == nil {
         try await play(track)
       } else {
-        statusText = "Новая запись добавлена в коллекцию"
-      }
-    } catch {
-      statusText = error.localizedDescription
-    }
-  }
-
-  private func advanceStation(forceNewTrack: Bool) async {
-    audioPlayer?.stop()
-    isPlaying = false
-    do {
-      let excluded = currentTrackID.map { Set([$0]) } ?? []
-      var next = try await library.leastRecentlyPlayedTrack(
-        genres: selectedGenres, excluding: excluded)
-      if next == nil, !forceNewTrack {
-        next = try await library.leastRecentlyPlayedTrack(genres: selectedGenres)
-      }
-      if next == nil { next = try await library.leastRecentlyPlayedTrack(genres: []) }
-
-      if let next {
-        try await play(next)
-        if generationEnabled, !isGenerating {
-          Task { await generateTrack(playWhenReady: false) }
+        if playbackQueue.readyTrackIDs.count == 2,
+          let replaceableID = playbackQueue.readyTrackIDs.last
+        {
+          _ = playbackQueue.remove(replaceableID)
         }
-      } else if generationEnabled {
-        await generateTrack(playWhenReady: true)
-      } else {
-        audioPlayer = nil
-        currentTrackID = nil
-        statusText = "В коллекции нет других записей"
+        _ = playbackQueue.enqueue(track.id)
+        await prepareNextPlaybackItem(for: currentTrackID)
+        statusText = "Новая запись готова и добавлена в очередь"
       }
     } catch {
       statusText = error.localizedDescription
@@ -322,18 +352,111 @@ final class FlowtoneAppModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
   }
 
   private func play(_ track: TrackRecord) async throws {
-    let url = try await library.audioURL(for: track.id)
-    let player = try AVAudioPlayer(contentsOf: url)
-    player.delegate = self
-    player.volume = Float(volume)
-    player.prepareToPlay()
-    player.play()
-    audioPlayer = player
+    playbackQueue = RadioPlaybackQueue(currentTrackID: track.id)
+    try await fillPlaybackQueue()
+
+    let currentItem = try await playbackItem(for: track.id)
+    let nextID = playbackQueue.readyTrackIDs.first
+    let nextItem: AudioPlaybackItem?
+    if let nextID {
+      nextItem = try await playbackItem(for: nextID)
+    } else {
+      nextItem = nil
+    }
+    let nextDuration = nextID.flatMap(trackRecord(for:))?.durationSeconds ?? track.durationSeconds
+    let duration = crossfade.effectiveDuration(
+      requested: Self.requestedCrossfadeSeconds,
+      currentDuration: TimeInterval(track.durationSeconds),
+      nextDuration: TimeInterval(nextDuration)
+    )
+
+    try playbackController.load(
+      current: currentItem,
+      next: nextItem,
+      crossfadeDuration: duration
+    )
+    playbackController.setVolume(Float(volume))
+    try playbackController.play()
     currentTrackID = track.id
     isPlaying = true
     _ = try await library.markPlayed(trackID: track.id)
     try await refreshLibrary()
     statusText = "Станция в эфире"
+  }
+
+  private func didTransition(from outgoingID: UUID, to incomingID: UUID) async {
+    if playbackQueue.currentTrackID == outgoingID,
+      playbackQueue.readyTrackIDs.first == incomingID
+    {
+      _ = playbackQueue.advance()
+    } else {
+      playbackQueue = RadioPlaybackQueue(currentTrackID: incomingID)
+    }
+
+    currentTrackID = incomingID
+    isPlaying = playbackController.isPlaying
+    do {
+      _ = try await library.markPlayed(trackID: incomingID)
+      try await refreshLibrary()
+      try await fillPlaybackQueue()
+      await prepareNextPlaybackItem(for: incomingID)
+      statusText = "Плавный переход · станция в эфире"
+      if canGenerateTrack, !isGenerating {
+        Task { await generateTrack(playWhenReady: false) }
+      }
+    } catch {
+      statusText = error.localizedDescription
+    }
+  }
+
+  private func prepareNextPlaybackItem(for requestedCurrentID: UUID?) async {
+    guard !isPreparingNext,
+      let requestedCurrentID,
+      requestedCurrentID == currentTrackID,
+      requestedCurrentID == playbackController.currentID,
+      playbackController.queuedID == nil
+    else { return }
+
+    isPreparingNext = true
+    defer { isPreparingNext = false }
+    do {
+      try await fillPlaybackQueue()
+      let nextID = playbackQueue.readyTrackIDs.first ?? requestedCurrentID
+      let nextItem = try await playbackItem(for: nextID)
+      let currentDuration = trackRecord(for: requestedCurrentID)?.durationSeconds ?? 120
+      let nextDuration = trackRecord(for: nextID)?.durationSeconds ?? currentDuration
+      let duration = crossfade.effectiveDuration(
+        requested: Self.requestedCrossfadeSeconds,
+        currentDuration: TimeInterval(currentDuration),
+        nextDuration: TimeInterval(nextDuration)
+      )
+      try playbackController.setCrossfadeDuration(duration)
+      try playbackController.replaceNext(with: nextItem)
+    } catch {
+      statusText = "Не удалось подготовить следующую запись: \(error.localizedDescription)"
+    }
+  }
+
+  private func fillPlaybackQueue() async throws {
+    while playbackQueue.needsPrefill {
+      let excluded = playbackQueue.protectedTrackIDs
+      var candidate = try await library.leastRecentlyPlayedTrack(
+        genres: selectedGenres,
+        excluding: excluded
+      )
+      if candidate == nil {
+        candidate = try await library.leastRecentlyPlayedTrack(genres: [], excluding: excluded)
+      }
+      guard let candidate, playbackQueue.enqueue(candidate.id) else { break }
+    }
+  }
+
+  private func playbackItem(for trackID: UUID) async throws -> AudioPlaybackItem {
+    AudioPlaybackItem(id: trackID, fileURL: try await library.audioURL(for: trackID))
+  }
+
+  private func trackRecord(for trackID: UUID) -> TrackRecord? {
+    tracks.first(where: { $0.id == trackID })
   }
 
   private func setLiked(_ liked: Bool, trackID: UUID) async {
@@ -352,8 +475,7 @@ final class FlowtoneAppModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
   }
 
   private func enforceStorageLimit(protecting additionalIDs: Set<UUID> = []) async throws {
-    var protectedIDs = additionalIDs
-    if let currentTrackID { protectedIDs.insert(currentTrackID) }
+    let protectedIDs = playbackQueue.protectedTrackIDs.union(additionalIDs)
     let report = try await library.enforceStorageLimit(
       bytes: Int64(storageLimitGiB) * 1_073_741_824,
       protectedTrackIDs: protectedIDs
@@ -373,6 +495,35 @@ final class FlowtoneAppModel: NSObject, ObservableObject, AVAudioPlayerDelegate 
 
   private func modelName(for tier: ModelTier) -> String {
     tier == .quality ? "Качество · ACE-Step" : "Лёгкая · Stable Audio 3 Small"
+  }
+
+  private func configureGenerationRuntime() async {
+    let requestedTier = selectedModelTier
+    switch modelCatalog.availability(for: requestedTier) {
+    case .available:
+      guard let engine = modelCatalog.stableAudioEngine() else {
+        generationRuntimeReady = false
+        modelRuntimeStatusText = "Локальный движок Stable Audio не удалось открыть"
+        return
+      }
+      await scheduler.replaceEngine(engine)
+      guard selectedModelTier == requestedTier else { return }
+      generationRuntimeReady = true
+      modelRuntimeStatusText = "Stable Audio 3 Small готова · генерация на этом Mac"
+    case .unavailable(let reason):
+      if Self.developmentAudioEnabled {
+        await scheduler.replaceEngine(SyntheticAudioEngine())
+        guard selectedModelTier == requestedTier else { return }
+        generationRuntimeReady = true
+        modelRuntimeStatusText = "Демо-движок · \(reason)"
+      } else {
+        generationRuntimeReady = false
+        modelRuntimeStatusText = reason
+      }
+    case .unsupported(let reason):
+      generationRuntimeReady = false
+      modelRuntimeStatusText = reason
+    }
   }
 
   private static var libraryRootDirectory: URL {

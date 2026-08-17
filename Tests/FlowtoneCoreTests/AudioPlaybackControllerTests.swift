@@ -111,6 +111,19 @@ struct AudioPlaybackControllerTests {
     #expect(throws: AudioPlaybackControllerError.invalidCrossfadeDuration) {
       try controller.load(current: item(1), crossfadeDuration: -.infinity)
     }
+    #expect(throws: AudioPlaybackControllerError.invalidCrossfadeDuration) {
+      try controller.setCrossfadeDuration(.nan)
+    }
+  }
+
+  @Test("Crossfade duration can follow the newly queued pair")
+  func updatesCrossfadeDuration() throws {
+    let controller = makeController(backend: TestBackend(durations: [10]))
+    try controller.load(current: item(1), crossfadeDuration: 2)
+
+    try controller.setCrossfadeDuration(5)
+
+    #expect(controller.crossfadeDuration == 5)
   }
 
   @Test("Skip immediately promotes and starts the scheduled next item")

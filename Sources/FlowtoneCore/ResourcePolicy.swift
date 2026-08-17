@@ -40,7 +40,7 @@ public struct ResourceSnapshot: Equatable, Sendable {
 
     return ResourceSnapshot(
       thermalState: thermalState,
-      memoryPressure: .normal,
+      memoryPressure: SystemMemoryPressureMonitor.shared.current,
       lowPowerModeEnabled: ProcessInfo.processInfo.isLowPowerModeEnabled
     )
   }

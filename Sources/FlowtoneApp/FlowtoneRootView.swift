@@ -1,8 +1,10 @@
+import Combine
 import FlowtoneCore
 import SwiftUI
 
 struct FlowtoneRootView: View {
   @ObservedObject var model: FlowtoneAppModel
+  private let playbackPulse = Timer.publish(every: 0.05, on: .main, in: .common).autoconnect()
 
   var body: some View {
     ZStack {
@@ -35,6 +37,9 @@ struct FlowtoneRootView: View {
     }
     .sheet(isPresented: $model.isLibraryPresented) {
       TrackLibraryView(model: model)
+    }
+    .onReceive(playbackPulse) { _ in
+      model.updatePlayback()
     }
   }
 }
@@ -269,7 +274,7 @@ private struct NowPlayingStage: View {
             .background(FlowtonePalette.panel, in: Circle())
         }
         .buttonStyle(.plain)
-        .disabled(model.currentTrack == nil && !model.generationEnabled)
+        .disabled(model.currentTrack == nil && !model.canGenerateTrack)
 
         Button {
           Task { await model.generateDevelopmentPreview() }
@@ -290,7 +295,7 @@ private struct NowPlayingStage: View {
           .shadow(color: FlowtonePalette.signal.opacity(0.22), radius: 18, y: 7)
         }
         .buttonStyle(.plain)
-        .disabled(!model.generationEnabled || model.isGenerating)
+        .disabled(!model.canGenerateTrack || model.isGenerating)
       }
       .padding(.top, 24)
 
@@ -338,7 +343,17 @@ private struct NowPlayingStage: View {
           .foregroundStyle(FlowtonePalette.signal)
           .frame(maxWidth: 250, alignment: .leading)
       }
+
+      Text(model.modelRuntimeStatusText)
+        .font(.system(size: 9, design: .rounded))
+        .foregroundStyle(
+          model.generationRuntimeReady ? FlowtonePalette.muted : FlowtonePalette.signal
+        )
+        .lineLimit(2)
+        .fixedSize(horizontal: false, vertical: true)
+        .frame(maxWidth: 300, alignment: .leading)
     }
+    .frame(width: 300, alignment: .leading)
     .padding(.horizontal, 14)
     .padding(.vertical, 10)
     .background(FlowtonePalette.panel, in: RoundedRectangle(cornerRadius: 12))
@@ -523,7 +538,8 @@ private struct TrackLibraryView: View {
       Button("Удалить", role: .destructive) { model.removeAllUnliked() }
       Button("Отмена", role: .cancel) {}
     } message: {
-      Text("Текущая запись доиграет. Остальные файлы без лайка будут удалены с Mac.")
+      Text(
+        "Текущая и подготовленные записи доиграют. Остальные файлы без лайка будут удалены с Mac.")
     }
   }
 
@@ -587,8 +603,8 @@ private struct TrackLibraryView: View {
           .foregroundStyle(FlowtonePalette.muted)
       }
       .buttonStyle(.plain)
-      .disabled(track.id == model.currentTrackID)
-      .help(track.id == model.currentTrackID ? "Текущая запись должна доиграть" : "Удалить запись")
+      .disabled(model.isTrackProtected(track.id))
+      .help(model.isTrackProtected(track.id) ? "Запись уже подготовлена к эфиру" : "Удалить запись")
     }
     .padding(.horizontal, 28)
     .frame(height: 54)

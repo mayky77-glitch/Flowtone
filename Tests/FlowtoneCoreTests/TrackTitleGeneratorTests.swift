@@ -20,7 +20,7 @@ struct TrackTitleGeneratorTests {
     #expect(first == second)
     #expect(first.contains("ночной город") == false)
     #expect(
-      first.lowercased().contains("дожд") || first.lowercased().contains("мокрых улиц")
+      first.lowercased().contains("зеркалах") || first.lowercased().contains("фонари")
     )
     #expect(first.contains("·") == false)
     #expect(first.split(whereSeparator: \.isWhitespace).count <= 10)
@@ -58,8 +58,8 @@ struct TrackTitleGeneratorTests {
     #expect(track.title.contains("зачарованный лес") == false)
     #expect(track.title.isEmpty == false)
     #expect(
-      track.title.lowercased().contains("магии")
-        || track.title.lowercased().contains("заклинаний")
+      track.title.lowercased().contains("дверью")
+        || track.title.lowercased().contains("старые карты")
     )
     #expect(track.title.split(whereSeparator: \.isWhitespace).count <= 10)
   }
@@ -96,5 +96,32 @@ struct TrackTitleGeneratorTests {
       seed: 12
     )
     #expect(repaired != "Тихий горизонт в тихом движении к ясному горизонту")
+  }
+
+  @Test("Driving titles vary and legacy exact-acceleration wording is repaired")
+  func drivingTitleVariety() {
+    let configuration = StationConfiguration(
+      genres: ["Synthwave"],
+      energy: .driving,
+      tempoBPM: 118,
+      mood: .focused
+    )
+    let titles = (0..<40).map {
+      TrackTitleGenerator().title(for: configuration, seed: UInt64($0))
+    }
+
+    #expect(Set(titles).count >= 20)
+    let literalTerms = ["ритм", "разгон", "строб", "рейв", "бит", "грув"]
+    #expect(
+      titles.allSatisfy { title in
+        literalTerms.allSatisfy { !title.localizedCaseInsensitiveContains($0) }
+      })
+
+    let repaired = TrackTitleGenerator.normalizedExistingTitle(
+      "Ночной протокол на точном разгоне",
+      genres: ["Synthwave"],
+      seed: 4
+    )
+    #expect(!repaired.localizedCaseInsensitiveContains("на точном разгоне"))
   }
 }

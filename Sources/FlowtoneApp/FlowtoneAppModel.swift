@@ -46,7 +46,7 @@ final class FlowtoneAppModel: ObservableObject {
     "Ambient": "Эмбиент", "Lo-fi": "Лоу-фай", "Classical": "Классика",
     "Jazz": "Джаз", "Electronic": "Электроника", "Post-rock": "Пост-рок",
     "Light Rave": "Лёгкий рейв", "Fantasy": "Фэнтези", "Dark Empire": "Тёмная империя",
-    "Rock": "Рок", "Metal": "Метал",
+    "Rock": "Рок", "Space Rock": "Космо-рок", "Metal": "Метал",
     "Thrash Metal": "Трэш-метал", "Cute": "Милая музыка", "Chaos": "Хаос",
     "Synthwave": "Синтвейв", "House": "Хаус", "Techno": "Техно",
     "Drum and Bass": "Драм-н-бэйс", "Hip-hop": "Хип-хоп", "Funk": "Фанк",

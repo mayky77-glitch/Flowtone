@@ -89,16 +89,23 @@ CD PROJEKT RED подчёркивает разнообразие более че
 
 ## Пиратская ветка
 
-По [официальной подборке Ubisoft Music](https://www.youtube.com/watch?v=uw0mldfLWQs) пиратская музыка разбита на морской folk и cinematic adventure:
+Исторические источники разделяют рабочие shanties и более свободные sea songs. `Wellerman` точнее считать новозеландской китобойной песней, а не доказанной рабочей shanty: [Library of Congress](https://blogs.loc.gov/folklife/2021/01/a-deep-dive-into-sea-shanties/) и [National Library of New Zealand](https://natlib.govt.nz/records/44842117).
 
-- инструментальная shanty-логика без голоса: fiddle, concertina, tin whistle и палубный ритм;
-- портовая jig/таверна;
-- оркестровый морской бой и погоня в шторм;
-- тёмный корабль-призрак с hurdy-gurdy и колоколами;
-- остров сокровищ и светлый фольклор архипелага.
-- трёхчастная cinematic suite: широкая тема, тихая морская середина и мощное возвращение.
+Рабочие песни держали постоянный темп, тяжёлый регулярный пульс и call-and-response, чтобы синхронизировать работу. Форма зависела от задачи: short drag, long haul, hand-over-hand, capstan, pumping и rowing: [Royal Museums Greenwich](https://www.rmg.co.uk/stories/maritime-history/sea-shanty-facts-history-meaning) и [Smithsonian Folkways](https://folkways.si.edu/songs-water-ways-maritime/world/music/article/smithsonian).
 
-Так пресеты покрывают и камерную народную сторону, и активную приключенческую, не повторяя музыку конкретных фильмов или игр.
+Поэтому Pirate теперь содержит восемь акустических архетипов: китобойный припев, capstan, short-haul, hand-over-hand, forebitter, hornpipe, портовый припев и гребную 6/8. Все варианты используют простой запоминающийся рефрен, fiddle/concertina/tin whistle, топот, хлопки и малую сухую группу. Cinematic orchestra, naval brass и war drums из этого жанра убраны.
+
+## Synthwave: analog noir
+
+Синтвейв расширен до 30 вариантов. Двадцать новых вариантов переносят не мелодии из фильма, а общие принципы analog-noir score: простой сильный мотив, тембр в роли драматургии, большое пространство, паузы, полифонический analog brass, механические низы и контраст с хрупким человеческим тембром.
+
+Эти принципы подтверждают [официальные заметки Sony Music о soundtrack](https://www.sonymusic.ca/press_release/alcon-sleeping-giant-asg-records-epic-records-warner-bros-pictures-announce-blade-runner-2049-original-motion-picture-soundtrack-out-october-5), [карточка проекта с credits и synth design](https://hans-zimmer.com/product/blade-runner-2049/comment-page-1/) и [интервью звуковой группы о роли тишины](https://www.motionpictures.org/2018/02/oscar-nominated-blade-runner-2049-sound-mixing-team-power-silence/). В production prompts нет имён фильма, композиторов или тем.
+
+## Космо-рок
+
+Новый жанр сохраняет живое rock-ядро — guitar, bass и acoustic drums — и расширяет его analog synthesizer, длинным guitar delay/reverb, motorik-пульсом и гипнотическим постепенным развитием. Это соответствует общему описанию [space rock как смеси psychedelic rock, ambient и experimental music](https://www.allmusic.com/style/space-rock-ma0000012255). Исторически analog synth расширил rock-палитру, а distorted electric guitar осталась её основой: [MoMA о Moog](https://www.moma.org/explore/inside_out/2015/03/10/sounds-from-outer-space-the-moog-at-moma/) и [The Met о rock-инструментах](https://www.metmuseum.org/exhibitions/listings/2019/play-it-loud).
+
+Восемь архетипов дают 16 вариантов: orbital motorik, zero-gravity swells, solar fuzz, cosmic blues, nebula post-rock crest, modular voyage, accessible prog и live starship jam.
 
 ## Производительность
 
@@ -108,8 +115,8 @@ CD PROJEKT RED подчёркивает разнообразие более че
 
 ## Контракт каталога
 
-- 28 жанров;
-- 314 автоматических вариантов в текущей версии;
+- 29 жанров;
+- 350 автоматических вариантов в текущей версии;
 - минимум 10 вариантов на каждый жанр;
 - у каждого музыкального архетипа есть `ровный эфир` и `живой разгон`;
 - автоматический режим выбирает production profile по seed;

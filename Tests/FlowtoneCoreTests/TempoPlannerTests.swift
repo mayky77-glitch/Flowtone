@@ -29,6 +29,10 @@ struct TempoPlannerTests {
       #expect(
         (92...168).contains(
           planner.tempo(for: "Dark Empire", energy: .balanced, seed: seed)))
+      #expect((96...144).contains(planner.tempo(for: "Pirate", energy: .balanced, seed: seed)))
+      #expect(
+        (64...148).contains(
+          planner.tempo(for: "Space Rock", energy: .balanced, seed: seed)))
     }
   }
 
@@ -38,5 +42,17 @@ struct TempoPlannerTests {
     let values = Set(
       (1...40).map { planner.tempo(for: "Fantasy", energy: .balanced, seed: UInt64($0)) })
     #expect(values.count >= 4)
+  }
+
+  @Test("Энергичный режим не медленнее ровного при том же seed")
+  func drivingBiasIsStronger() {
+    let planner = TempoPlanner()
+    for genre in GenrePromptCatalog.supportedGenres {
+      for seed in UInt64(1)...30 {
+        let balanced = planner.tempo(for: genre, energy: .balanced, seed: seed)
+        let driving = planner.tempo(for: genre, energy: .driving, seed: seed)
+        #expect(driving >= balanced, "\(genre), seed \(seed)")
+      }
+    }
   }
 }

@@ -9,7 +9,8 @@ public enum EnergyLevel: String, CaseIterable, Codable, Sendable {
     switch self {
     case .calm: "low energy, restrained dynamics"
     case .balanced: "balanced energy, steady dynamics"
-    case .driving: "high energy, driving dynamics"
+    case .driving:
+      "very high energy, urgent forward momentum, assertive full-range dynamics, punchy transient attack, active bass movement and a clear peak while preserving tonal center and coherent form"
     }
   }
 }

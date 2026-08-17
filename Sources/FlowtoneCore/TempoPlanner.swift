@@ -10,7 +10,7 @@ public struct TempoPlanner: Sendable {
       switch energy {
       case .calm: -1
       case .balanced: 0
-      case .driving: 1
+      case .driving: 2
       }
 
     let randomIndex = Int(Self.mix(seed) % UInt64(profile.common.count))
@@ -38,8 +38,9 @@ public struct TempoPlanner: Sendable {
     "Light Rave": Profile(common: [112, 120, 128, 136, 144], range: 108...150, surpriseStep: 4),
     "Fantasy": Profile(common: [58, 68, 80, 96, 120], range: 50...132, surpriseStep: 8),
     "Dark Empire": Profile(common: [100, 112, 128, 144, 160], range: 92...168, surpriseStep: 8),
-    "Pirate": Profile(common: [92, 108, 120, 128, 136], range: 80...148, surpriseStep: 8),
+    "Pirate": Profile(common: [104, 112, 120, 128, 136], range: 96...144, surpriseStep: 8),
     "Rock": Profile(common: [96, 112, 124, 136, 148], range: 84...160, surpriseStep: 8),
+    "Space Rock": Profile(common: [72, 88, 104, 120, 136], range: 64...148, surpriseStep: 8),
     "Metal": Profile(common: [104, 120, 136, 152, 168], range: 88...184, surpriseStep: 8),
     "Thrash Metal": Profile(common: [150, 162, 174, 186, 198], range: 142...210, surpriseStep: 8),
     "Cute": Profile(common: [88, 100, 112, 124, 136], range: 80...144, surpriseStep: 6),

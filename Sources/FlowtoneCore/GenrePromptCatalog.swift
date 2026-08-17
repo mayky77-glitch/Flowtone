@@ -16,7 +16,7 @@ public struct GenrePreset: Equatable, Identifiable, Sendable {
 public struct GenrePromptCatalog: Sendable {
   public static let supportedGenres = [
     "Ambient", "Lo-fi", "Light Rave", "Fantasy", "Dark Empire", "Pirate", "Rock",
-    "Metal", "Thrash Metal", "Cute", "Chaos", "Electronic", "Synthwave", "House",
+    "Space Rock", "Metal", "Thrash Metal", "Cute", "Chaos", "Electronic", "Synthwave", "House",
     "Techno", "Hard Techno", "Industrial Techno", "Hardcore", "Psytrance", "Breakbeat",
     "Drum and Bass", "Cyberpunk", "Hip-hop", "Funk", "Jazz", "Classical", "Post-rock",
     "Cinematic",
@@ -55,13 +55,13 @@ public struct GenrePromptCatalog: Sendable {
     presets(for: genre).count
   }
 
-  private struct Archetype: Sendable {
+  struct Archetype: Sendable {
     let id: String
     let title: String
     let detail: String
   }
 
-  private struct Definition: Sendable {
+  struct Definition: Sendable {
     let base: String
     let archetypes: [Archetype]
   }
@@ -72,7 +72,7 @@ public struct GenrePromptCatalog: Sendable {
     let detail: String
   }
 
-  private static func a(_ id: String, _ title: String, _ detail: String) -> Archetype {
+  static func a(_ id: String, _ title: String, _ detail: String) -> Archetype {
     Archetype(id: id, title: title, detail: detail)
   }
 
@@ -99,7 +99,7 @@ public struct GenrePromptCatalog: Sendable {
       id: "charged",
       title: "живой разгон",
       detail:
-        "active arrangement, stronger rhythmic motion, surprising but coherent contrast, decisive climax"
+        "vivid high-motion arrangement, firm rhythmic propulsion, human micro-variation, active bass movement, short fills at phrase boundaries, motif variation every eight bars, brief breakdown then decisive full-band return, punchy transient attack and a strong climax, stable tonal center and coherent recurring theme"
     ),
   ]
 
@@ -235,34 +235,39 @@ public struct GenrePromptCatalog: Sendable {
     ),
     "Pirate": Definition(
       base:
-        "instrumental age-of-sail adventure music, strong nautical identity, human acoustic pulse and cinematic scale, no singing",
+        "instrumental lively sea-song and shanty folk, simple catchy diatonic or Dorian melody, short repeated refrain, steady deck-work pulse, bright communal energy, small dry acoustic ensemble only, no vocals and no symphonic orchestra",
       archetypes: [
         a(
-          "shanty", "Морская артель",
-          "about 124 to 132 BPM, concertina and fiddle exchange a call-and-response melody without voice, stomping deck rhythm, frequent folk cadences"
+          "whaling-refrain", "Китобойный припев",
+          "about 124 to 132 BPM in plain 4/4, a four-chord folk loop, solo fiddle question answered by concertina and tin-whistle unison, boot stomp on every beat, handclap backbeat, immediate eight-bar hook"
         ),
         a(
-          "battle", "Бортовой залп",
-          "naval brass, urgent strings, low war drums, bold minor-mode battle theme"),
-        a(
-          "tavern", "Портовая таверна",
-          "fiddle jig, concertina, bodhran, wooden percussion, tipsy syncopation"),
-        a(
-          "storm", "Погоня сквозь шторм",
-          "galloping dotted string ostinato, thunderous toms, bold brass swells, sharp minor-mode turns, rising sea-danger arc"
+          "capstan", "Якорь домой",
+          "about 104 to 116 BPM, circular capstan rhythm in steady 4/4, repeating concertina figure, warm fiddle refrain, low frame-drum beat and an uncomplicated homeward melody"
         ),
         a(
-          "ghost-ship", "Корабль-призрак",
-          "hurdy-gurdy drone, bowed bass, distant bells, dark modal sea legend"),
-        a(
-          "treasure", "Остров сокровищ",
-          "plucked strings, hand percussion, curious whistle melody, adventurous brass"),
-        a(
-          "coast", "Ветер архипелага", "fiddle, wooden flute, frame drum, bright coastal folk dance"
+          "short-haul", "Дружный рывок",
+          "about 116 to 128 BPM in firm 2/4, short fiddle call followed by two accented ensemble answers, wooden percussion, boot heels and clear tonic-dominant folk cadences"
         ),
         a(
-          "cinematic-suite", "Легенда семи морей",
-          "layered strings and horns, broad three-part adventure arc, quiet oceanic middle section and a powerful minor-to-major return"
+          "hand-over-hand", "Весёлая палуба",
+          "about 128 to 140 BPM, playful Dorian hand-over-hand pulse, compact two-bar fiddle phrase answered by whistle and concertina, swinging stomps and a rowdy but tidy refrain"
+        ),
+        a(
+          "forebitter", "История у кубрика",
+          "about 108 to 120 BPM, plain storytelling fiddle melody, acoustic guitar downstrokes, concertina response, a memorable recurring refrain and gentle human timing"
+        ),
+        a(
+          "hornpipe", "Танец на палубе",
+          "about 116 to 128 BPM, jaunty dotted hornpipe rhythm, major-key AABB form, fiddle and tin whistle in unison, light bodhran and heel taps"
+        ),
+        a(
+          "harbor-refrain", "Родная гавань",
+          "about 112 to 124 BPM, bright Mixolydian folk tune, rising fiddle lead answered by concertina chords, claps and a broad singalong-shaped instrumental refrain"
+        ),
+        a(
+          "rowing", "Вёсла и волна",
+          "about 96 to 112 BPM in lilting 6/8, two-beat rowing sway, low frame drum, plucked acoustic guitar, simple wooden-flute call and a repeated fiddle answer"
         ),
       ]
     ),
@@ -282,6 +287,7 @@ public struct GenrePromptCatalog: Sendable {
         a("desert", "Пыльный усилитель", "low fuzzy guitar, hypnotic bass groove, wide toms"),
       ]
     ),
+    "Space Rock": spaceRockDefinition,
     "Metal": Definition(
       base:
         "instrumental heavy metal, powerful bass, live drums, articulate distorted guitars, no vocals",
@@ -365,7 +371,7 @@ public struct GenrePromptCatalog: Sendable {
     ),
     "Synthwave": Definition(
       base:
-        "instrumental retro-futurist synthwave, analog synthesizers, cinematic night atmosphere",
+        "instrumental retro-futurist analog synth noir, expressive polyphonic synth brass, simple memorable motif, wide dimensional reverb, tactile low-frequency design, human emotion inside a vast technological space, no vocals and no recognizable film themes",
       archetypes: [
         a(
           "neon", "Неоновое шоссе", "poly-synth chords, gated snare, arpeggiated bass, bright lead"),
@@ -374,6 +380,46 @@ public struct GenrePromptCatalog: Sendable {
         a("arcade", "Аркадная погоня", "punchy bass sequence, digital lead, compact action form"),
         a(
           "cinematic", "Город после дождя", "wide pads, slow lead melody, reflective neon ambience"),
+        a(
+          "barren-opening", "Синтетический горизонт",
+          "a lone processed piano note gives way to one immense detuned synth-brass chord, then sparse low pulses and long breathing gaps"
+        ),
+        a(
+          "rain-memory", "Память под дождём",
+          "warm unstable analog pad, fragile three-note lead, soft rain-like high-frequency texture, slow harmonic changes and an intimate restrained pulse"
+        ),
+        a(
+          "glass-archive", "Стеклянный архив",
+          "granular glass harmonics, filtered clockwork arpeggio, muted electric piano, deep room tone and a small motif gradually revealed by timbre"
+        ),
+        a(
+          "industrial-furnace", "Цех будущего",
+          "slow mechanical impacts, distorted sub-bass pressure, scraped metallic texture, narrow minor-second signal and controlled industrial escalation"
+        ),
+        a(
+          "desert-signal", "Сигнал над пустошью",
+          "dry wind-like noise, distant low synth horn, isolated percussion hit, enormous empty stereo field and a patient two-chord progression"
+        ),
+        a(
+          "synthetic-cathedral", "Собор из хрома",
+          "majestic polyphonic analog brass, slow parallel chord movement, massive reverberant tail, quiet sub drone and one clear rising human-scale theme"
+        ),
+        a(
+          "neon-intimacy", "Тёплый неон",
+          "soft chorus-rich poly synth, breathy monophonic lead, low heartbeat pulse, suspended harmony and a tender minimal refrain without drums"
+        ),
+        a(
+          "baseline-pressure", "Протокол давления",
+          "claustrophobic repeating synth cell, clipped electronic knocks, rising filtered noise, dissonant interruptions and abrupt pockets of near-silence"
+        ),
+        a(
+          "aerial-pursuit", "Полёт над мегаполисом",
+          "motoric low sequencer, pulsing noise rhythm, broad synth-brass calls, accelerating layered ostinato and a sharply focused electronic peak"
+        ),
+        a(
+          "ocean-wall", "Дамба под чёрным небом",
+          "long-form bass pulse, tidal waves of synth brass, sparse heavy percussion, a simple emotional lead entering late and a monumental final release"
+        ),
       ]
     ),
     "House": Definition(

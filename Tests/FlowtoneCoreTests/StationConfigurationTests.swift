@@ -73,6 +73,23 @@ import Testing
     #expect(prompt.contains("intentional fusion"))
   }
 
+  @Test func drivingIntentRequiresEnergyWithoutSacrificingForm() throws {
+    let input = StationConfiguration(
+      genres: ["Space Rock"],
+      energy: .driving,
+      tempoBPM: 136,
+      mood: .uplifting
+    )
+
+    let prompt = try PromptComposer().compose(from: input, seed: 19)
+
+    #expect(prompt.contains("very high energy"))
+    #expect(prompt.contains("punchy transient attack"))
+    #expect(prompt.contains("active bass movement"))
+    #expect(prompt.contains("coherent form"))
+    #expect(prompt.contains("decisive full-band return"))
+  }
+
   @Test func decoderAcceptsOlderConfigurationWithoutPresetMap() throws {
     let json =
       #"{"genres":["Ambient"],"energy":"calm","tempoBPM":70,"mood":"focused"}"#

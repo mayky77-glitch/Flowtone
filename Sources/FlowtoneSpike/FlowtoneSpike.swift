@@ -24,7 +24,7 @@ struct FlowtoneSpike {
 
       let configuration = StationConfiguration(
         genres: options.genres,
-        energy: .calm,
+        energy: options.energy,
         tempoBPM: options.tempoBPM,
         mood: .focused,
         vibe: options.vibe
@@ -81,6 +81,7 @@ private struct Options {
   var stableAudioExecutable: URL?
   var genres = ["ambient", "lo-fi"]
   var tempoBPM = 82
+  var energy = EnergyLevel.calm
   var vibe: String?
   var showHardware = false
 
@@ -111,6 +112,9 @@ private struct Options {
       case "--tempo":
         tempoBPM = try Int(value(after: &index, in: arguments))
           .orThrow(SpikeError.invalidNumber("tempo"))
+      case "--energy":
+        energy = try EnergyLevel(rawValue: value(after: &index, in: arguments))
+          .orThrow(SpikeError.invalidEnergy)
       case "--vibe":
         vibe = try value(after: &index, in: arguments)
       case "--help", "-h":
@@ -141,6 +145,7 @@ private struct Options {
       --output DIRECTORY               Output directory
       --genres LIST                    Comma-separated genres
       --tempo BPM                      Tempo (40...220)
+      --energy LEVEL                   calm|balanced|driving
       --vibe TEXT                      Optional vibe
       --sa3-executable PATH            Path to official optimized/mlx/sa3 wrapper
     """
@@ -150,6 +155,7 @@ private enum SpikeError: LocalizedError {
   case missingStableAudioExecutable
   case invalidEngine
   case invalidNumber(String)
+  case invalidEnergy
   case missingValue(String)
   case unknownArgument(String)
   case generationDeferred
@@ -162,6 +168,8 @@ private enum SpikeError: LocalizedError {
       "Engine must be synthetic or stable-audio."
     case .invalidNumber(let name):
       "Invalid numeric value for \(name)."
+    case .invalidEnergy:
+      "Energy must be calm, balanced, or driving."
     case .missingValue(let argument):
       "Missing value after \(argument)."
     case .unknownArgument(let argument):

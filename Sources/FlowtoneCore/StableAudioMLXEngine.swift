@@ -37,12 +37,25 @@ public struct StableAudioMLXEngine: GenerationEngine {
 
   public func generate(_ request: GenerationRequest) async throws -> GeneratedAudio {
     let executableURL = executableURL
-    return try await Task.detached(priority: .utility) {
-      try Self.run(executableURL: executableURL, request: request)
-    }.value
+    let processBox = StableAudioProcessBox()
+    return try await withTaskCancellationHandler {
+      try await Task.detached(priority: .utility) {
+        try Self.run(
+          executableURL: executableURL,
+          request: request,
+          processBox: processBox
+        )
+      }.value
+    } onCancel: {
+      processBox.cancel()
+    }
   }
 
-  private static func run(executableURL: URL, request: GenerationRequest) throws -> GeneratedAudio {
+  private static func run(
+    executableURL: URL,
+    request: GenerationRequest,
+    processBox: StableAudioProcessBox
+  ) throws -> GeneratedAudio {
     let fileManager = FileManager.default
     guard fileManager.isExecutableFile(atPath: executableURL.path) else {
       throw GenerationEngineError.missingExecutable(executableURL.path)
@@ -69,13 +82,23 @@ public struct StableAudioMLXEngine: GenerationEngine {
     process.standardError = errorPipe
 
     let startedAt = Date()
+    let cancellationWasRequested = processBox.register(process)
+    defer { processBox.clear(process) }
     try process.run()
+    if cancellationWasRequested {
+      process.terminate()
+    }
     process.waitUntilExit()
 
     let stderr = String(
       decoding: errorPipe.fileHandleForReading.readDataToEndOfFile(),
       as: UTF8.self
     ).trimmingCharacters(in: .whitespacesAndNewlines)
+
+    if processBox.isCancellationRequested {
+      try? fileManager.removeItem(at: outputURL)
+      throw CancellationError()
+    }
 
     guard process.terminationStatus == 0 else {
       throw GenerationEngineError.processFailed(
@@ -99,5 +122,40 @@ public struct StableAudioMLXEngine: GenerationEngine {
       elapsedSeconds: Date().timeIntervalSince(startedAt),
       seed: request.seed
     )
+  }
+}
+
+private final class StableAudioProcessBox: @unchecked Sendable {
+  private let lock = NSLock()
+  private var process: Process?
+  private var cancellationRequested = false
+
+  var isCancellationRequested: Bool {
+    lock.withLock { cancellationRequested }
+  }
+
+  func register(_ process: Process) -> Bool {
+    lock.withLock {
+      self.process = process
+      return cancellationRequested
+    }
+  }
+
+  func clear(_ process: Process) {
+    lock.withLock {
+      if self.process === process {
+        self.process = nil
+      }
+    }
+  }
+
+  func cancel() {
+    let activeProcess = lock.withLock { () -> Process? in
+      cancellationRequested = true
+      return process
+    }
+    if activeProcess?.isRunning == true {
+      activeProcess?.terminate()
+    }
   }
 }

@@ -14,6 +14,8 @@ public actor GenerationScheduler {
   private var engine: any GenerationEngine
   private let resourcePolicy: ResourcePolicy
   private var consecutiveFailures = 0
+  private var activeGenerationTask: Task<GeneratedAudio, Error>?
+  private var activeGenerationID: UUID?
 
   public init(
     engine: any GenerationEngine,
@@ -26,6 +28,9 @@ public actor GenerationScheduler {
   public var engineDescriptor: EngineDescriptor { engine.descriptor }
 
   public func replaceEngine(_ engine: any GenerationEngine) {
+    activeGenerationTask?.cancel()
+    activeGenerationTask = nil
+    activeGenerationID = nil
     self.engine = engine
     consecutiveFailures = 0
     state = generationEnabled ? .idle : .deferred(reason: "Генерация выключена.")
@@ -34,6 +39,7 @@ public actor GenerationScheduler {
   public func setGenerationEnabled(_ enabled: Bool) {
     generationEnabled = enabled
     if !enabled {
+      activeGenerationTask?.cancel()
       state = .deferred(reason: "Генерация выключена.")
     } else if case .deferred = state {
       state = .idle
@@ -74,12 +80,33 @@ public actor GenerationScheduler {
       outputDirectory: outputDirectory
     )
 
+    guard activeGenerationTask == nil else {
+      state = .deferred(reason: "Предыдущее задание генерации ещё выполняется.")
+      return nil
+    }
+
+    let engine = engine
+    let generationID = UUID()
+    let generationTask = Task(priority: .utility) {
+      try await engine.generate(request)
+    }
+    activeGenerationID = generationID
+    activeGenerationTask = generationTask
     state = .generating
+    defer {
+      if activeGenerationID == generationID {
+        activeGenerationTask = nil
+        activeGenerationID = nil
+      }
+    }
     do {
-      let audio = try await engine.generate(request)
+      let audio = try await generationTask.value
       consecutiveFailures = 0
-      state = .idle
+      state = generationEnabled ? .idle : .deferred(reason: "Генерация выключена.")
       return audio
+    } catch is CancellationError {
+      state = generationEnabled ? .idle : .deferred(reason: "Генерация выключена.")
+      return nil
     } catch {
       consecutiveFailures += 1
       state =

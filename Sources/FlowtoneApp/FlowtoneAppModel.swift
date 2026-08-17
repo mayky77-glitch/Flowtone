@@ -22,7 +22,8 @@ final class FlowtoneAppModel: ObservableObject {
   static let genreLabels = [
     "Ambient": "Эмбиент", "Lo-fi": "Лоу-фай", "Classical": "Классика",
     "Jazz": "Джаз", "Electronic": "Электроника", "Post-rock": "Пост-рок",
-    "Light Rave": "Лёгкий рейв", "Fantasy": "Фэнтези", "Rock": "Рок", "Metal": "Метал",
+    "Light Rave": "Лёгкий рейв", "Fantasy": "Фэнтези", "Dark Empire": "Тёмная империя",
+    "Rock": "Рок", "Metal": "Метал",
     "Thrash Metal": "Трэш-метал", "Cute": "Милая музыка", "Chaos": "Хаос",
     "Synthwave": "Синтвейв", "House": "Хаус", "Techno": "Техно",
     "Drum and Bass": "Драм-н-бэйс", "Hip-hop": "Хип-хоп", "Funk": "Фанк",
@@ -427,6 +428,7 @@ final class FlowtoneAppModel: ObservableObject {
   }
 
   func updatePlayback() {
+    guard playbackController.isPlaying || playbackController.isScrubbing else { return }
     playbackController.update()
     synchronizePlaybackState()
   }
@@ -758,10 +760,19 @@ final class FlowtoneAppModel: ObservableObject {
   }
 
   private func synchronizePlaybackState() {
-    isPlaying = playbackController.isPlaying
-    isScrubbing = playbackController.isScrubbing
-    playbackPositionSeconds = playbackController.position
-    playbackDurationSeconds = playbackController.duration
+    let nextIsPlaying = playbackController.isPlaying
+    let nextIsScrubbing = playbackController.isScrubbing
+    let nextPosition = playbackController.position
+    let nextDuration = playbackController.duration
+
+    if isPlaying != nextIsPlaying { isPlaying = nextIsPlaying }
+    if isScrubbing != nextIsScrubbing { isScrubbing = nextIsScrubbing }
+    if abs(playbackPositionSeconds - nextPosition) >= 0.01 {
+      playbackPositionSeconds = nextPosition
+    }
+    if abs(playbackDurationSeconds - nextDuration) >= 0.01 {
+      playbackDurationSeconds = nextDuration
+    }
   }
 
   private func setLiked(_ liked: Bool, trackID: UUID) async {

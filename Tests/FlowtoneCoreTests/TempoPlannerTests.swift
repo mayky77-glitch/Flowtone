@@ -26,6 +26,9 @@ struct TempoPlannerTests {
         (160...180).contains(
           planner.tempo(for: "Drum and Bass", energy: .balanced, seed: seed)))
       #expect((60...100).contains(planner.tempo(for: "Hip-hop", energy: .balanced, seed: seed)))
+      #expect(
+        (92...168).contains(
+          planner.tempo(for: "Dark Empire", energy: .balanced, seed: seed)))
     }
   }
 

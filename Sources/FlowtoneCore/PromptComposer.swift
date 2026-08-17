@@ -9,7 +9,7 @@ public struct PromptComposer: Sendable {
     let genreProfiles = configuration.genres.enumerated().map { index, genre in
       let presetID = configuration.genrePresetIDs[genre]
       return
-        "\(genre): \(catalog.profile(for: genre, seed: seed &+ UInt64(index), presetID: presetID))"
+        "\(genre): \(catalog.profile(for: genre, seed: seed &+ UInt64(index), energy: configuration.energy, presetID: presetID))"
     }
     var parts = [
       configuration.genres.joined(separator: " blended with "),

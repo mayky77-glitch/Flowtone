@@ -15,9 +15,9 @@ public struct GenrePreset: Equatable, Identifiable, Sendable {
 /// Genre-specific production language for the local text-to-music model.
 public struct GenrePromptCatalog: Sendable {
   public static let supportedGenres = [
-    "Ambient", "Lo-fi", "Light Rave", "Fantasy", "Pirate", "Rock", "Metal",
-    "Thrash Metal", "Cute", "Chaos", "Electronic", "Synthwave", "House", "Techno",
-    "Hard Techno", "Industrial Techno", "Hardcore", "Psytrance", "Breakbeat",
+    "Ambient", "Lo-fi", "Light Rave", "Fantasy", "Dark Empire", "Pirate", "Rock",
+    "Metal", "Thrash Metal", "Cute", "Chaos", "Electronic", "Synthwave", "House",
+    "Techno", "Hard Techno", "Industrial Techno", "Hardcore", "Psytrance", "Breakbeat",
     "Drum and Bass", "Cyberpunk", "Hip-hop", "Funk", "Jazz", "Classical", "Post-rock",
     "Cinematic",
   ]
@@ -25,24 +25,30 @@ public struct GenrePromptCatalog: Sendable {
   public init() {}
 
   public func presets(for genre: String) -> [GenrePreset] {
-    let definition = Self.definitions[genre] ?? Self.fallback
-    return definition.archetypes.flatMap { archetype in
-      Self.arrangements.map { arrangement in
-        GenrePreset(
-          id: "\(archetype.id)-\(arrangement.id)",
-          title: "\(archetype.title) · \(arrangement.title)",
-          productionPrompt: "\(definition.base), \(archetype.detail), \(arrangement.detail)"
-        )
-      }
-    }
+    Self.presetCatalog[genre] ?? Self.fallbackPresets
   }
 
-  public func profile(for genre: String, seed: UInt64, presetID: String? = nil) -> String {
+  public func profile(
+    for genre: String,
+    seed: UInt64,
+    energy: EnergyLevel = .balanced,
+    presetID: String? = nil
+  ) -> String {
     let candidates = presets(for: genre)
     if let presetID, let selected = candidates.first(where: { $0.id == presetID }) {
       return selected.productionPrompt
     }
-    return candidates[Int(Self.mix(seed) % UInt64(candidates.count))].productionPrompt
+
+    let archetypeCount = candidates.count / Self.arrangements.count
+    let archetypeIndex = Int(Self.mix(seed) % UInt64(archetypeCount))
+    let arrangementIndex: Int =
+      switch energy {
+      case .calm: 0
+      case .balanced:
+        Int(Self.mix(seed &+ 0xD1B5_4A32_D192_ED03) % UInt64(Self.arrangements.count))
+      case .driving: Self.arrangements.count - 1
+      }
+    return candidates[archetypeIndex * Self.arrangements.count + arrangementIndex].productionPrompt
   }
 
   public func profileCount(for genre: String) -> Int {
@@ -68,6 +74,18 @@ public struct GenrePromptCatalog: Sendable {
 
   private static func a(_ id: String, _ title: String, _ detail: String) -> Archetype {
     Archetype(id: id, title: title, detail: detail)
+  }
+
+  private static func makePresets(for definition: Definition) -> [GenrePreset] {
+    definition.archetypes.flatMap { archetype in
+      arrangements.map { arrangement in
+        GenrePreset(
+          id: "\(archetype.id)-\(arrangement.id)",
+          title: "\(archetype.title) · \(arrangement.title)",
+          productionPrompt: "\(definition.base), \(archetype.detail), \(arrangement.detail)"
+        )
+      }
+    }
   }
 
   private static let arrangements = [
@@ -121,22 +139,32 @@ public struct GenrePromptCatalog: Sendable {
     ),
     "Light Rave": Definition(
       base:
-        "instrumental European rave, clean club low end, buoyant four-on-the-floor pulse, no crowd and no vocals",
+        "instrumental Berlin rave and hard-dance continuum, elastic club low end, bright detailed top end, continuous dance-floor motion, no crowd and no vocals",
       archetypes: [
         a(
           "berlin-room", "Берлинская комната",
-          "raw warehouse drums, rolling bass, concise trance stabs"),
+          "112 to 124 BPM body-moving groove, raw room drums, rolling bass, concise trance stabs, long blend-friendly development"
+        ),
         a(
           "hard-dance", "Упругий танцпол",
-          "bouncy hard-dance bass, bright rave chords, playful syncopation"),
+          "bouncy hard-dance bass, bright rave chords, playful syncopation, crisp rapid percussion"),
         a(
-          "euphoric", "Эйфория на рассвете", "euphoric trance arpeggio, piano lift, airy breakdown"),
-        a("acid", "Мягкая кислота", "restrained acid sequence, crisp hats, warm filtered build"),
-        a("break-rave", "Ломаный строб", "breakbeat accents, elastic bass, short rave-synth hook"),
+          "euphoric", "Эйфория на рассвете",
+          "euphoric trance arpeggio, brief piano lift, airy breakdown, quick return to the kick"),
+        a(
+          "acid", "Мягкая кислота",
+          "restrained acid sequence, crisp hats, warm filtered build, rounded kick without harsh clipping"
+        ),
+        a(
+          "break-rave", "Ломаный строб",
+          "short breakbeat accents inside a steady pulse, elastic bass, compact rave-synth hook"),
         a(
           "hard-groove", "Берлинский hard groove",
-          "tribal rolling drums, syncopated toms, short metallic loop"),
-        a("euro", "Еврорейв", "bright supersaw chord, galloping bass, playful retro dance motif"),
+          "tribal rolling drums, syncopated toms, short metallic loop, dense sixteenth-note motion"),
+        a(
+          "euro", "Еврорейв",
+          "bright supersaw chord, galloping bass, playful retro dance motif, controlled euphoric peak"
+        ),
       ]
     ),
     "Fantasy": Definition(
@@ -153,11 +181,16 @@ public struct GenrePromptCatalog: Sendable {
           "heroic", "Поход героев",
           "bold brass calls, urgent string ostinato, war drums, triumphant finale"),
         a(
-          "overlord", "Overlord · тёмная империя",
-          "low strings, pipe organ, austere brass, ritual drums, oppressive regal power"),
+          "skyrim-wilderness", "Skyrim · северная даль",
+          "slow Nordic modal motif, open fifths, low strings, solo horn and wooden flute, very wide dynamics, mountain stillness"
+        ),
         a(
-          "skyrim", "Skyrim · северная сага",
-          "Nordic modal theme, low choir-like pads without words, horns, strings, large drums, mountain wilderness"
+          "skyrim-hall", "Skyrim · древний зал",
+          "low bowed strings and brass shaped like a distant ceremonial chorus without voices, stone reverb, patient modal harmony"
+        ),
+        a(
+          "skyrim-battle", "Skyrim · пробуждение дракона",
+          "broad low horns, forceful orchestral unison, large frame drums, urgent strings, heroic ascent from sparse wilderness"
         ),
         a(
           "cave", "Пещеры и руны",
@@ -170,13 +203,43 @@ public struct GenrePromptCatalog: Sendable {
           "lute, fiddle, hand drum, wooden flute, lively medieval dance"),
       ]
     ),
+    "Dark Empire": Definition(
+      base:
+        "instrumental dark imperial fantasy, vivid full-spectrum theatrical production, punchy drums, crisp upper strings and brass, chromatic minor harmony, regal menace, no vocals and no recognizable franchise themes",
+      archetypes: [
+        a(
+          "symphonic-assault", "Штурм чёрной цитадели",
+          "fast string ostinato, pipe organ, low brass, distorted rhythm guitar and hard live drums, decisive orchestral-rock climax"
+        ),
+        a(
+          "villain-cabaret", "Бал безумного владыки",
+          "crooked swing pulse, upright piano, brass stabs, harpsichord flecks, elastic electronic bass and playful sinister turns"
+        ),
+        a(
+          "arcane-machine", "Магическая машина войны",
+          "industrial electronic pulse, granular bass, sharp orchestral stabs, syncopated drums and rapid tension-release contrasts"
+        ),
+        a(
+          "royal-ritual", "Ритуал тёмной короны",
+          "ritual toms and crisp snare, pipe organ, bright trumpet stabs, rapid high-string ostinato, monumental march with a forceful full-band peak"
+        ),
+        a(
+          "black-elegy", "Элегия последнего трона",
+          "somber piano, cold electronic heartbeat, lyrical strings, clear cymbal detail and a bright guitar-led final surge"
+        ),
+        a(
+          "conquest", "Марш великого завоевания",
+          "bold brass calls, double-time drums, racing strings, dark synthesizer layers and a triumphant yet threatening finale"
+        ),
+      ]
+    ),
     "Pirate": Definition(
       base:
-        "instrumental age-of-sail adventure music, strong nautical identity, acoustic folk and cinematic colors, no singing",
+        "instrumental age-of-sail adventure music, strong nautical identity, human acoustic pulse and cinematic scale, no singing",
       archetypes: [
         a(
           "shanty", "Морская артель",
-          "concertina, fiddle, tin whistle, stomping deck rhythm, shanty-like call-and-response melody without voice"
+          "about 124 to 132 BPM, concertina and fiddle exchange a call-and-response melody without voice, stomping deck rhythm, frequent folk cadences"
         ),
         a(
           "battle", "Бортовой залп",
@@ -186,7 +249,8 @@ public struct GenrePromptCatalog: Sendable {
           "fiddle jig, concertina, bodhran, wooden percussion, tipsy syncopation"),
         a(
           "storm", "Погоня сквозь шторм",
-          "fast string ostinato, thunderous toms, brass swells, rising sea-danger arc"),
+          "galloping dotted string ostinato, thunderous toms, bold brass swells, sharp minor-mode turns, rising sea-danger arc"
+        ),
         a(
           "ghost-ship", "Корабль-призрак",
           "hurdy-gurdy drone, bowed bass, distant bells, dark modal sea legend"),
@@ -195,6 +259,10 @@ public struct GenrePromptCatalog: Sendable {
           "plucked strings, hand percussion, curious whistle melody, adventurous brass"),
         a(
           "coast", "Ветер архипелага", "fiddle, wooden flute, frame drum, bright coastal folk dance"
+        ),
+        a(
+          "cinematic-suite", "Легенда семи морей",
+          "layered strings and horns, broad three-part adventure arc, quiet oceanic middle section and a powerful minor-to-major return"
         ),
       ]
     ),
@@ -208,7 +276,7 @@ public struct GenrePromptCatalog: Sendable {
           "clean delayed verse guitar, overdriven chorus, melodic bass"),
         a(
           "anime-00s", "Аниме-рок нулевых",
-          "energetic alternative power-pop, jangly guitar, fuzzy chorus, restless coming-of-age momentum"
+          "about 136 BPM, jangly octave guitar, melodic counterpoint bass, punchy acoustic kit, compact verse motion and a bright fuzzy climax"
         ),
         a("garage", "Гаражный импульс", "raw compact riff, loose punchy drums, dry room sound"),
         a("desert", "Пыльный усилитель", "low fuzzy guitar, hypnotic bass groove, wide toms"),
@@ -338,7 +406,7 @@ public struct GenrePromptCatalog: Sendable {
     ),
     "Hard Techno": Definition(
       base:
-        "instrumental hard techno, fast warehouse pressure, forceful kick, controlled distortion",
+        "instrumental hard techno, roughly 140 to 154 BPM warehouse pressure, high onset density, forceful kick, controlled distortion",
       archetypes: [
         a("raw", "Сырая комната", "raw rumble, clipped percussion, stark minor stab"),
         a(
@@ -354,7 +422,8 @@ public struct GenrePromptCatalog: Sendable {
       ]
     ),
     "Industrial Techno": Definition(
-      base: "instrumental industrial techno, mechanical space, dark club production, no vocals",
+      base:
+        "instrumental industrial techno, 148 to 160 BPM mechanical pressure with occasional faster peaks, bright abrasive detail, dark club production, no vocals",
       archetypes: [
         a("factory", "Машинный цех", "metal impacts, piston rhythm, distorted rumbling bass"),
         a(
@@ -371,7 +440,7 @@ public struct GenrePromptCatalog: Sendable {
     ),
     "Hardcore": Definition(
       base:
-        "instrumental hardcore electronic music, very high energy, hard clipped kick, no vocals",
+        "instrumental hardcore electronic music, 160 to 190 BPM continuous high energy, dense transients, hard clipped kick, no vocals",
       archetypes: [
         a("gabber", "Габбер-удар", "distorted tail kick, rapid hats, brutal simple hook"),
         a(
@@ -428,20 +497,26 @@ public struct GenrePromptCatalog: Sendable {
     ),
     "Cyberpunk": Definition(
       base:
-        "instrumental dark-future city radio, gritty believable production, technology and street energy, no copyrighted samples",
+        "instrumental eclectic dark-future city radio, bright dense production, moderate dynamics, technology and street energy, no copyrighted samples",
       archetypes: [
         a(
           "industrial-rock", "Радио индустриального рока",
           "distorted guitar machines, electronic drums, hostile bass riff"),
         a(
           "dark-club", "Радио тёмного клуба",
-          "hard electro pulse, cold synths, industrial percussion"),
+          "acidic 124 to 132 BPM electro pulse, cold synths, industrial percussion and slowly mutating filters"
+        ),
         a(
           "future-hop", "Радио улиц будущего", "heavy 808, broken trap drums, granular city texture"
         ),
         a(
           "neon-pop", "Радио неоновой ночи",
-          "glossy synth hook, bittersweet chords, punchy electronic beat"),
+          "glossy chopped-synth motif, bittersweet chords, punchy electronic beat and a wide emotional breakdown"
+        ),
+        a(
+          "street-club", "Радио уличного клуба",
+          "syncopated dembow-like percussion without vocals, distorted sub bass, synthetic brass accents and restless urban motion"
+        ),
         a(
           "combat", "Радио боевого сектора",
           "drum-and-bass propulsion, metal accents, alarm-like motif"),
@@ -478,11 +553,17 @@ public struct GenrePromptCatalog: Sendable {
         a("electro", "Электрофанк", "slap bass, analog synth lead, handclaps"),
         a(
           "phantom", "Фантомный фанк",
-          "ghostly game-world jazz fusion, electric piano, nimble bass, playful spectral synths"),
+          "about 112 BPM, ghostly jazz-fusion, electric piano, nimble syncopated bass, crisp drums, playful spectral synths and strong dynamic contrasts"
+        ),
         a("city-pop", "Городской блеск", "clean guitar, polished bass, bright jazz-pop chords"),
         a(
           "jrpg", "Приключенческий фьюжн",
-          "JRPG-like harmonic turns, slap bass, electric piano, animated lead synth"),
+          "frequent colorful harmonic turns, slap bass, electric piano, animated lead synth and a clear breakdown-to-rebuild arc"
+        ),
+        a(
+          "boss-fusion", "Фанковая битва с призраком",
+          "bright electric piano runs, elastic bass counterpoint, tight live drums, spectral synthesizer answers and theatrical fusion climax"
+        ),
       ]
     ),
     "Jazz": Definition(
@@ -493,7 +574,12 @@ public struct GenrePromptCatalog: Sendable {
         a("modal", "Открытый лад", "tenor saxophone, quartal piano, extended modal development"),
         a(
           "fusion", "Игровой джаз-фьюжн",
-          "electric piano, melodic electric bass, crisp drums, JRPG-like harmonic turns"),
+          "electric piano, melodic syncopated bass, crisp drums, colorful game-fusion harmony and energetic sectional contrasts"
+        ),
+        a(
+          "spectral-fusion", "Призрачный джаз-фьюжн",
+          "electric piano improvisation, nimble bass, bright drum accents, playful spectral synthesizer and a dramatic harmonic turnaround"
+        ),
         a(
           "cabaret", "Полуночное кабаре",
           "upright piano, clarinet, brushed kit, theatrical minor harmony"),
@@ -542,6 +628,9 @@ public struct GenrePromptCatalog: Sendable {
       ]
     ),
   ]
+
+  private static let fallbackPresets = makePresets(for: fallback)
+  private static let presetCatalog = definitions.mapValues(makePresets)
 
   private static func mix(_ input: UInt64) -> UInt64 {
     var value = input &+ 0x9E37_79B9_7F4A_7C15

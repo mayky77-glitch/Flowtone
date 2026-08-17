@@ -139,4 +139,4 @@ scripts/package-app.sh /tmp/flowtone-package
 open /tmp/flowtone-package/Flowtone.app
 ```
 
-Скрипт отказывается перезаписывать существующий bundle и не выполняет signing или notarization.
+Скрипт отказывается перезаписывать существующий bundle, включает `Assets/AppIcon.icns` и не выполняет signing или notarization.

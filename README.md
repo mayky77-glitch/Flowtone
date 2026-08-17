@@ -20,7 +20,8 @@ Flowtone — бесплатное приложение для macOS с откр�
 - локальные автоназвания из жанра, настроения, энергии и вайба;
 - 20 жанров и изменение настроек во время сессии;
 - автоматическое обнаружение установленного Stable Audio runtime;
-- unsigned `.app` packager, macOS CI, CLI spike и unit tests.
+- выбранная владельцем тёплая retro-иконка с пластинкой;
+- unsigned `.app` packager с нативной `.icns`, macOS CI, CLI spike и unit tests.
 
 Настоящие model weights в репозиторий не входят и в текущем milestone не загружались.
 
@@ -61,6 +62,7 @@ scripts/package-app.sh /tmp/flowtone-package
 Debug-сборка использует явно помеченный synthetic fallback, если локальная модель не установлена.
 Release-сборка генерирует музыку только через найденный Stable Audio runtime. Подключение настоящего
 Stable Audio описано в [implementation guide](docs/IMPLEMENTATION.md).
+В собранный `.app` автоматически включается выбранная иконка из `Assets/AppIcon.icns`.
 
 ## Лицензирование
 

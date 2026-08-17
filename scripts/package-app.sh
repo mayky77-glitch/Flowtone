@@ -10,7 +10,9 @@ output_dir="${1:-dist}"
 app_bundle="$output_dir/Flowtone.app"
 contents_dir="$app_bundle/Contents"
 macos_dir="$contents_dir/MacOS"
+resources_dir="$contents_dir/Resources"
 binary_path=".build/release/Flowtone"
+icon_path="Assets/AppIcon.icns"
 
 if [[ -e "$app_bundle" ]]; then
   echo "Refusing to overwrite existing bundle: $app_bundle" >&2
@@ -24,7 +26,12 @@ if [[ ! -x "$binary_path" ]]; then
   exit 1
 fi
 
-mkdir -p "$macos_dir"
+if [[ ! -f "$icon_path" ]]; then
+  echo "App icon is missing: $icon_path" >&2
+  exit 1
+fi
+
+mkdir -p "$macos_dir" "$resources_dir"
 
 cat >"$contents_dir/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -37,6 +44,8 @@ cat >"$contents_dir/Info.plist" <<'PLIST'
   <string>Flowtone</string>
   <key>CFBundleIdentifier</key>
   <string>com.flowtone.app</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon.icns</string>
   <key>CFBundleInfoDictionaryVersion</key>
   <string>6.0</string>
   <key>CFBundleName</key>
@@ -49,15 +58,23 @@ cat >"$contents_dir/Info.plist" <<'PLIST'
   <string>1</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
 </dict>
 </plist>
 PLIST
 
 cp "$binary_path" "$macos_dir/Flowtone"
+cp "$icon_path" "$resources_dir/AppIcon.icns"
 plutil -lint "$contents_dir/Info.plist"
 
 if [[ ! -x "$macos_dir/Flowtone" ]]; then
   echo "Bundle executable is missing or not executable: $macos_dir/Flowtone" >&2
+  exit 1
+fi
+
+if [[ ! -f "$resources_dir/AppIcon.icns" ]]; then
+  echo "Bundle icon is missing: $resources_dir/AppIcon.icns" >&2
   exit 1
 fi
 

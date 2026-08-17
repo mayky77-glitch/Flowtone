@@ -2,6 +2,20 @@ import Combine
 import FlowtoneCore
 import Foundation
 
+enum TrackLibraryFilter: String, CaseIterable, Identifiable {
+  case all
+  case liked
+
+  var id: Self { self }
+
+  var title: String {
+    switch self {
+    case .all: "Все записи"
+    case .liked: "Любимые"
+    }
+  }
+}
+
 @MainActor
 final class FlowtoneAppModel: ObservableObject {
   static let availableGenres = [
@@ -21,7 +35,6 @@ final class FlowtoneAppModel: ObservableObject {
 
   @Published var selectedGenres: Set<String> = ["Ambient", "Lo-fi"]
   @Published var energy: EnergyLevel = .calm
-  @Published var tempoBPM = 82.0
   @Published var mood: StationMood = .focused
   @Published var vibe = ""
   @Published var generationEnabled = true {
@@ -46,6 +59,7 @@ final class FlowtoneAppModel: ObservableObject {
     didSet { UserDefaults.standard.set(storageLimitGiB, forKey: Self.storageLimitKey) }
   }
   @Published var isLibraryPresented = false
+  @Published var libraryFilter: TrackLibraryFilter = .all
   @Published private(set) var tracks: [TrackRecord] = []
   @Published private(set) var libraryStatistics = LibraryStatistics.empty
   @Published private(set) var currentTrackID: UUID?
@@ -57,6 +71,9 @@ final class FlowtoneAppModel: ObservableObject {
   @Published private(set) var modelRuntimeStatusText = "Проверяю локальную модель…"
   @Published private(set) var hasAcknowledgedStableAudioTerms = false
   @Published private(set) var isUsingDevelopmentAudio = false
+  @Published private(set) var playbackPositionSeconds: TimeInterval = 0
+  @Published private(set) var playbackDurationSeconds: TimeInterval = 0
+  @Published private(set) var isScrubbing = false
 
   let hardware = HardwareProfile.current
   let hardwareSupport: HardwareSupport
@@ -77,6 +94,8 @@ final class FlowtoneAppModel: ObservableObject {
   private var playbackQueue = RadioPlaybackQueue()
   private var isPreparingNext = false
   private var generationCursor = 0
+  private var playbackHistory: [UUID] = []
+  private var playbackHistoryIndex: Int?
 
   private lazy var playbackController: AudioPlaybackController = {
     let curve = EqualPowerCrossfade()
@@ -157,7 +176,11 @@ final class FlowtoneAppModel: ObservableObject {
     Self.availableGenres.first(where: selectedGenres.contains) ?? "Ambient"
   }
 
-  var primaryGenreDisplayName: String { Self.genreLabels[primaryGenre] ?? primaryGenre }
+  var primaryGenreDisplayName: String {
+    selectedGenres.isEmpty ? "Все жанры" : (Self.genreLabels[primaryGenre] ?? primaryGenre)
+  }
+
+  var areAllGenresSelected: Bool { selectedGenres.count == Self.availableGenres.count }
 
   var currentTrack: TrackRecord? {
     guard let currentTrackID else { return nil }
@@ -176,6 +199,21 @@ final class FlowtoneAppModel: ObservableObject {
 
   var isCurrentTrackLiked: Bool { currentTrack?.isLiked ?? false }
 
+  var playbackProgress: Double {
+    guard playbackDurationSeconds > 0 else { return 0 }
+    return min(max(playbackPositionSeconds / playbackDurationSeconds, 0), 1)
+  }
+
+  var playbackTimeText: String { Self.formatTime(playbackPositionSeconds) }
+
+  var playbackDurationText: String { Self.formatTime(playbackDurationSeconds) }
+
+  var canGoToPreviousTrack: Bool { previousHistoryIndex != nil }
+
+  var canGoToNextTrack: Bool {
+    currentTrackID != nil || forwardHistoryIndex != nil || canGenerateTrack
+  }
+
   var librarySummaryText: String {
     "\(libraryStatistics.trackCount) треков · \(Self.formatBytes(libraryStatistics.byteSize))"
   }
@@ -185,23 +223,40 @@ final class FlowtoneAppModel: ObservableObject {
 
   func toggleGenre(_ genre: String) {
     if selectedGenres.contains(genre) {
-      guard selectedGenres.count > 1 else { return }
       selectedGenres.remove(genre)
     } else {
       selectedGenres.insert(genre)
     }
   }
 
+  func toggleAllGenres() {
+    if areAllGenresSelected {
+      clearGenreFilters()
+    } else {
+      selectAllGenres()
+    }
+  }
+
+  func selectAllGenres() {
+    selectedGenres = Set(Self.availableGenres)
+    statusText = "Все жанры активны"
+  }
+
+  func clearGenreFilters() {
+    selectedGenres.removeAll()
+    statusText = "Фильтры сняты · станция чередует все жанры"
+  }
+
   func togglePlayback() {
     if playbackController.currentID != nil {
       if playbackController.isPlaying {
         playbackController.pause()
-        isPlaying = false
+        synchronizePlaybackState()
         statusText = "Пауза"
       } else {
         do {
           try playbackController.play()
-          isPlaying = true
+          synchronizePlaybackState()
           statusText = "Станция в эфире"
         } catch {
           statusText = error.localizedDescription
@@ -227,10 +282,96 @@ final class FlowtoneAppModel: ObservableObject {
   }
 
   func skipTrack() {
+    nextTrack()
+  }
+
+  func previousTrack() {
+    guard let destinationIndex = previousHistoryIndex else {
+      statusText = "Предыдущей записи в этой сессии нет"
+      return
+    }
+    Task { await navigateHistory(to: destinationIndex) }
+  }
+
+  func nextTrack() {
+    if let destinationIndex = forwardHistoryIndex {
+      Task { await navigateHistory(to: destinationIndex) }
+      return
+    }
+
     Task {
       await prepareNextPlaybackItem(for: currentTrackID)
       do {
         try playbackController.skip()
+        synchronizePlaybackState()
+      } catch {
+        statusText = error.localizedDescription
+      }
+    }
+  }
+
+  func seek(to position: TimeInterval) {
+    do {
+      try playbackController.seek(to: position)
+      synchronizePlaybackState()
+      statusText = "Позиция изменена"
+    } catch {
+      statusText = error.localizedDescription
+    }
+  }
+
+  func seek(by offset: TimeInterval) {
+    seek(to: playbackPositionSeconds + offset)
+  }
+
+  func seekToBeginning() {
+    seek(to: 0)
+  }
+
+  func seekToEnd() {
+    seek(to: playbackDurationSeconds)
+  }
+
+  func beginScrubbing() {
+    do {
+      try playbackController.beginScrubbing()
+      synchronizePlaybackState()
+      statusText = "Пластинка под рукой"
+    } catch {
+      statusText = error.localizedDescription
+    }
+  }
+
+  func scrub(to position: TimeInterval, direction: AudioScrubDirection) {
+    do {
+      try playbackController.scrub(to: position, direction: direction)
+      synchronizePlaybackState()
+    } catch {
+      statusText = error.localizedDescription
+    }
+  }
+
+  func endScrubbing() {
+    do {
+      try playbackController.endScrubbing()
+      synchronizePlaybackState()
+      statusText = playbackController.isPlaying ? "Станция в эфире" : "Пауза"
+    } catch {
+      statusText = error.localizedDescription
+    }
+  }
+
+  func showLibrary(filter: TrackLibraryFilter) {
+    libraryFilter = filter
+    isLibraryPresented = true
+  }
+
+  func playTrack(trackID: UUID) {
+    guard let track = trackRecord(for: trackID) else { return }
+    Task {
+      do {
+        try await play(track)
+        isLibraryPresented = false
       } catch {
         statusText = error.localizedDescription
       }
@@ -239,7 +380,7 @@ final class FlowtoneAppModel: ObservableObject {
 
   func updatePlayback() {
     playbackController.update()
-    isPlaying = playbackController.isPlaying
+    synchronizePlaybackState()
   }
 
   func isTrackProtected(_ trackID: UUID) -> Bool {
@@ -344,14 +485,16 @@ final class FlowtoneAppModel: ObservableObject {
 
     do {
       let genre = nextGenerationGenre()
+      let seed = UInt64.random(in: 1...UInt64.max)
+      let automaticTempo = TempoPlanner().tempo(for: genre, energy: energy, seed: seed)
       let configuration = StationConfiguration(
-        genres: [genre], energy: energy, tempoBPM: Int(tempoBPM.rounded()), mood: mood, vibe: vibe
+        genres: [genre], energy: energy, tempoBPM: automaticTempo, mood: mood, vibe: vibe
       )
       let outputDirectory = await library.incomingDirectory
       let audio = try await scheduler.generateNext(
         configuration: configuration,
         durationSeconds: 120,
-        seed: UInt64.random(in: 1...UInt64.max),
+        seed: seed,
         outputDirectory: outputDirectory,
         resources: .current
       )
@@ -380,7 +523,7 @@ final class FlowtoneAppModel: ObservableObject {
     }
   }
 
-  private func play(_ track: TrackRecord) async throws {
+  private func play(_ track: TrackRecord, historyDestination: Int? = nil) async throws {
     playbackQueue = RadioPlaybackQueue(currentTrackID: track.id)
     try await fillPlaybackQueue()
 
@@ -407,7 +550,12 @@ final class FlowtoneAppModel: ObservableObject {
     playbackController.setVolume(Float(volume))
     try playbackController.play()
     currentTrackID = track.id
-    isPlaying = true
+    if let historyDestination {
+      playbackHistoryIndex = historyDestination
+    } else {
+      recordHistory(track.id)
+    }
+    synchronizePlaybackState()
     _ = try await library.markPlayed(trackID: track.id)
     try await refreshLibrary()
     statusText = "Станция в эфире"
@@ -423,7 +571,8 @@ final class FlowtoneAppModel: ObservableObject {
     }
 
     currentTrackID = incomingID
-    isPlaying = playbackController.isPlaying
+    recordHistory(incomingID)
+    synchronizePlaybackState()
     do {
       _ = try await library.markPlayed(trackID: incomingID)
       try await refreshLibrary()
@@ -488,6 +637,58 @@ final class FlowtoneAppModel: ObservableObject {
     tracks.first(where: { $0.id == trackID })
   }
 
+  private var previousHistoryIndex: Int? {
+    guard let playbackHistoryIndex, playbackHistoryIndex > 0 else { return nil }
+    for index in stride(from: playbackHistoryIndex - 1, through: 0, by: -1) {
+      if trackRecord(for: playbackHistory[index]) != nil { return index }
+    }
+    return nil
+  }
+
+  private var forwardHistoryIndex: Int? {
+    guard let playbackHistoryIndex, playbackHistoryIndex + 1 < playbackHistory.count else {
+      return nil
+    }
+    for index in (playbackHistoryIndex + 1)..<playbackHistory.count {
+      if trackRecord(for: playbackHistory[index]) != nil { return index }
+    }
+    return nil
+  }
+
+  private func navigateHistory(to index: Int) async {
+    guard playbackHistory.indices.contains(index),
+      let track = trackRecord(for: playbackHistory[index])
+    else { return }
+    do {
+      try await play(track, historyDestination: index)
+      statusText = "Запись из истории сессии"
+    } catch {
+      statusText = error.localizedDescription
+    }
+  }
+
+  private func recordHistory(_ trackID: UUID) {
+    if let playbackHistoryIndex,
+      playbackHistory.indices.contains(playbackHistoryIndex),
+      playbackHistory[playbackHistoryIndex] == trackID
+    {
+      return
+    }
+
+    if let playbackHistoryIndex, playbackHistoryIndex + 1 < playbackHistory.count {
+      playbackHistory.removeSubrange((playbackHistoryIndex + 1)..<playbackHistory.count)
+    }
+    playbackHistory.append(trackID)
+    playbackHistoryIndex = playbackHistory.count - 1
+  }
+
+  private func synchronizePlaybackState() {
+    isPlaying = playbackController.isPlaying
+    isScrubbing = playbackController.isScrubbing
+    playbackPositionSeconds = playbackController.position
+    playbackDurationSeconds = playbackController.duration
+  }
+
   private func setLiked(_ liked: Bool, trackID: UUID) async {
     do {
       _ = try await library.setLiked(liked, trackID: trackID)
@@ -515,8 +716,8 @@ final class FlowtoneAppModel: ObservableObject {
   }
 
   private func nextGenerationGenre() -> String {
-    let genres = Self.availableGenres.filter(selectedGenres.contains)
-    guard !genres.isEmpty else { return "Ambient" }
+    let filteredGenres = Self.availableGenres.filter(selectedGenres.contains)
+    let genres = filteredGenres.isEmpty ? Self.availableGenres : filteredGenres
     let genre = genres[generationCursor % genres.count]
     generationCursor = (generationCursor + 1) % genres.count
     return genre
@@ -584,5 +785,10 @@ final class FlowtoneAppModel: ObservableObject {
 
   private static func formatBytes(_ bytes: Int64) -> String {
     ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+  }
+
+  private static func formatTime(_ seconds: TimeInterval) -> String {
+    let safeSeconds = max(0, seconds.isFinite ? Int(seconds.rounded(.down)) : 0)
+    return String(format: "%d:%02d", safeSeconds / 60, safeSeconds % 60)
   }
 }

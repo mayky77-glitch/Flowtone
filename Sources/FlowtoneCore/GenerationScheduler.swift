@@ -67,7 +67,7 @@ public actor GenerationScheduler {
 
     let composer = PromptComposer()
     let request = GenerationRequest(
-      prompt: try composer.compose(from: configuration),
+      prompt: try composer.compose(from: configuration, seed: seed),
       negativePrompt: composer.negativePrompt,
       durationSeconds: durationSeconds,
       seed: seed,

@@ -2,7 +2,7 @@ import Foundation
 
 public struct TrackRecord: Codable, Equatable, Identifiable, Sendable {
   public let id: UUID
-  public let title: String
+  public var title: String
   public let fileName: String
   public let genres: [String]
   public let createdAt: Date
@@ -60,9 +60,14 @@ public struct TrackRecord: Codable, Equatable, Identifiable, Sendable {
     byteSize = try container.decode(Int64.self, forKey: .byteSize)
     engineID = try container.decode(String.self, forKey: .engineID)
     seed = try container.decode(UInt64.self, forKey: .seed)
-    title =
+    let decodedTitle =
       try container.decodeIfPresent(String.self, forKey: .title)
       ?? TrackTitleGenerator.legacyTitle(genres: genres, seed: seed)
+    title = TrackTitleGenerator.normalizedExistingTitle(
+      decodedTitle,
+      genres: genres,
+      seed: seed
+    )
   }
 }
 

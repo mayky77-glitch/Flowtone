@@ -78,6 +78,16 @@ private struct StationControls: View {
         }
 
         controlSection("Жанры") {
+          HStack(spacing: 8) {
+            Button("Выбрать все", action: model.selectAllGenres)
+              .disabled(model.areAllGenresSelected)
+            Button("Снять все", action: model.clearGenreFilters)
+              .disabled(model.selectedGenres.isEmpty)
+          }
+          .font(.system(size: 10, weight: .semibold, design: .rounded))
+          .buttonStyle(.bordered)
+          .tint(FlowtonePalette.signal)
+
           LazyVGrid(columns: columns, alignment: .leading, spacing: 8) {
             ForEach(FlowtoneAppModel.availableGenres, id: \.self) { genre in
               GenreChip(
@@ -99,11 +109,6 @@ private struct StationControls: View {
           .labelsHidden()
           .pickerStyle(.segmented)
           .tint(FlowtonePalette.signal)
-        }
-
-        controlSection("Темп · \(Int(model.tempoBPM)) уд/мин") {
-          Slider(value: $model.tempoBPM, in: 55...150, step: 1)
-            .tint(FlowtonePalette.signal)
         }
 
         controlSection("Настроение") {
@@ -210,14 +215,20 @@ private struct NowPlayingStage: View {
       Spacer()
 
       VinylBroadcastVisual(
-        isSpinning: model.isPlaying || model.isGenerating,
+        isSpinning: model.isPlaying || model.isScrubbing,
         isPlaying: model.isPlaying,
+        isScrubbing: model.isScrubbing,
         genreTitle: model.currentGenreDisplayName,
-        trackID: model.currentTrackID,
-        trackDurationSeconds: model.currentTrack?.durationSeconds ?? 120
+        progress: model.playbackProgress,
+        positionSeconds: model.playbackPositionSeconds,
+        durationSeconds: model.playbackDurationSeconds,
+        hasTrack: model.currentTrack != nil,
+        onScrubBegan: model.beginScrubbing,
+        onScrubChanged: model.scrub,
+        onScrubEnded: model.endScrubbing
       )
-      .frame(maxWidth: 560)
-      .frame(height: 292)
+      .frame(maxWidth: 580)
+      .frame(height: 270)
 
       VStack(spacing: 8) {
         Text(model.isGenerating ? "СОЗДАЁТСЯ НОВАЯ ЗАПИСЬ" : "СЕЙЧАС В ЭФИРЕ")
@@ -226,12 +237,12 @@ private struct NowPlayingStage: View {
           .foregroundStyle(FlowtonePalette.signal)
 
         Text(model.currentTrackTitle)
-          .font(.system(size: 25, weight: .medium, design: .serif))
+          .font(.system(size: 23, weight: .medium, design: .serif))
           .foregroundStyle(FlowtonePalette.ink)
           .multilineTextAlignment(.center)
-          .lineLimit(2)
-          .minimumScaleFactor(0.75)
-          .frame(maxWidth: 520)
+          .lineLimit(2, reservesSpace: true)
+          .minimumScaleFactor(0.82)
+          .frame(maxWidth: 610, minHeight: 56)
 
         Text(model.statusText)
           .font(.system(size: 12, design: .rounded))
@@ -240,77 +251,9 @@ private struct NowPlayingStage: View {
           .frame(maxWidth: 390)
       }
 
-      HStack(spacing: 12) {
-        Button {
-          model.toggleCurrentLike()
-        } label: {
-          Image(systemName: model.isCurrentTrackLiked ? "heart.fill" : "heart")
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(
-              model.isCurrentTrackLiked ? FlowtonePalette.signal : FlowtonePalette.ink
-            )
-            .frame(width: 44, height: 44)
-            .background(FlowtonePalette.panel, in: Circle())
-        }
-        .buttonStyle(.plain)
-        .disabled(model.currentTrack == nil)
-
-        Button {
-          model.togglePlayback()
-        } label: {
-          Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
-            .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(FlowtonePalette.selectedInk)
-            .frame(width: 48, height: 48)
-            .background(FlowtonePalette.signal, in: Circle())
-        }
-        .buttonStyle(.plain)
-        .disabled(model.isLibraryLoading)
-
-        Button {
-          model.skipTrack()
-        } label: {
-          Image(systemName: "forward.end.fill")
-            .font(.system(size: 15, weight: .semibold))
-            .frame(width: 44, height: 44)
-            .background(FlowtonePalette.panel, in: Circle())
-        }
-        .buttonStyle(.plain)
-        .disabled(model.currentTrack == nil && !model.canGenerateTrack)
-
-        Button {
-          Task { await model.generateDevelopmentPreview() }
-        } label: {
-          HStack(spacing: 9) {
-            if model.isGenerating {
-              ProgressView().controlSize(.small)
-            } else {
-              Image(systemName: "waveform.badge.plus")
-            }
-            Text(model.generationActionTitle)
-          }
-          .font(.system(size: 14, weight: .semibold, design: .rounded))
-          .foregroundStyle(FlowtonePalette.canvas)
-          .padding(.horizontal, 20)
-          .frame(height: 48)
-          .background(FlowtonePalette.signal, in: Capsule())
-          .shadow(color: FlowtonePalette.signal.opacity(0.22), radius: 18, y: 7)
-        }
-        .buttonStyle(.plain)
-        .disabled(!model.canGenerateTrack || model.isGenerating)
-      }
-      .padding(.top, 24)
-
-      HStack(spacing: 10) {
-        Image(systemName: "speaker.fill")
-        Slider(value: $model.volume, in: 0...1)
-          .tint(FlowtonePalette.signal)
-          .frame(width: 180)
-        Image(systemName: "speaker.wave.2.fill")
-      }
-      .font(.system(size: 10))
-      .foregroundStyle(FlowtonePalette.muted)
-      .padding(.top, 16)
+      PlaybackConsole(model: model)
+        .frame(maxWidth: 650)
+        .padding(.top, 12)
 
       Spacer()
 
@@ -380,31 +323,220 @@ private struct NowPlayingStage: View {
   }
 
   private var libraryBadge: some View {
-    Button {
-      model.isLibraryPresented = true
-    } label: {
-      VStack(alignment: .trailing, spacing: 4) {
-        HStack(spacing: 6) {
-          Image(systemName: "music.note.list")
-          Text("КОЛЛЕКЦИЯ")
-        }
-        .font(.system(size: 9, weight: .semibold, design: .monospaced))
-        .tracking(1)
-        .foregroundStyle(FlowtonePalette.muted)
+    HStack(spacing: 0) {
+      Button {
+        model.showLibrary(filter: .all)
+      } label: {
+        VStack(alignment: .trailing, spacing: 4) {
+          HStack(spacing: 6) {
+            Image(systemName: "music.note.list")
+            Text("КОЛЛЕКЦИЯ")
+          }
+          .font(.system(size: 9, weight: .semibold, design: .monospaced))
+          .tracking(1)
+          .foregroundStyle(FlowtonePalette.muted)
 
-        Text(model.librarySummaryText)
-          .font(.system(size: 12, weight: .medium, design: .rounded))
-          .foregroundStyle(FlowtonePalette.ink)
+          Text(model.librarySummaryText)
+            .font(.system(size: 12, weight: .medium, design: .rounded))
+            .foregroundStyle(FlowtonePalette.ink)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
       }
-      .padding(.horizontal, 14)
-      .padding(.vertical, 10)
-      .background(FlowtonePalette.panel, in: RoundedRectangle(cornerRadius: 12))
-      .overlay {
-        RoundedRectangle(cornerRadius: 12)
-          .stroke(FlowtonePalette.line, lineWidth: 1)
+      .buttonStyle(.plain)
+
+      Rectangle()
+        .fill(FlowtonePalette.line)
+        .frame(width: 1, height: 38)
+
+      Button {
+        model.showLibrary(filter: .liked)
+      } label: {
+        VStack(spacing: 4) {
+          Image(systemName: "heart.fill")
+            .font(.system(size: 12, weight: .semibold))
+          Text("\(model.libraryStatistics.likedTrackCount) любимых")
+            .font(.system(size: 9, weight: .semibold, design: .rounded))
+        }
+        .foregroundStyle(FlowtonePalette.signal)
+        .frame(minWidth: 82)
+        .padding(.vertical, 10)
       }
+      .buttonStyle(.plain)
+    }
+    .background(FlowtonePalette.panel, in: RoundedRectangle(cornerRadius: 12))
+    .overlay { RoundedRectangle(cornerRadius: 12).stroke(FlowtonePalette.line) }
+  }
+}
+
+private struct PlaybackConsole: View {
+  @ObservedObject var model: FlowtoneAppModel
+  @State private var draftPosition: TimeInterval = 0
+  @State private var previousDraftPosition: TimeInterval = 0
+  @State private var isEditingPosition = false
+
+  private var sliderPosition: Binding<Double> {
+    Binding(
+      get: { isEditingPosition ? draftPosition : model.playbackPositionSeconds },
+      set: { value in
+        if !isEditingPosition {
+          isEditingPosition = true
+          draftPosition = model.playbackPositionSeconds
+          previousDraftPosition = draftPosition
+          model.beginScrubbing()
+        }
+        let direction: AudioScrubDirection = value >= previousDraftPosition ? .forward : .backward
+        draftPosition = value
+        previousDraftPosition = value
+        model.scrub(to: value, direction: direction)
+      }
+    )
+  }
+
+  var body: some View {
+    VStack(spacing: 10) {
+      HStack(spacing: 10) {
+        Button("Начало", action: model.seekToBeginning)
+          .frame(width: 52)
+          .disabled(model.currentTrack == nil)
+
+        Text(model.playbackTimeText)
+          .frame(width: 42, alignment: .trailing)
+
+        Slider(
+          value: sliderPosition,
+          in: 0...max(model.playbackDurationSeconds, 1),
+          onEditingChanged: positionEditingChanged
+        )
+        .tint(FlowtonePalette.signal)
+        .accessibilityLabel("Позиция в треке")
+        .accessibilityValue("\(model.playbackTimeText) из \(model.playbackDurationText)")
+
+        Text(model.playbackDurationText)
+          .frame(width: 42, alignment: .leading)
+
+        Button("Конец", action: model.seekToEnd)
+          .frame(width: 52)
+          .disabled(model.currentTrack == nil)
+      }
+      .font(.system(size: 10, weight: .medium, design: .monospaced))
+      .foregroundStyle(FlowtonePalette.muted)
+      .buttonStyle(.plain)
+
+      HStack(spacing: 10) {
+        transportButton(
+          systemName: "backward.end.fill",
+          label: "Предыдущая запись",
+          disabled: !model.canGoToPreviousTrack,
+          action: model.previousTrack
+        )
+        transportButton(
+          systemName: "gobackward.15",
+          label: "Назад на 15 секунд",
+          disabled: model.currentTrack == nil
+        ) { model.seek(by: -15) }
+
+        Button(action: model.togglePlayback) {
+          Image(systemName: model.isPlaying ? "pause.fill" : "play.fill")
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(FlowtonePalette.selectedInk)
+            .frame(width: 48, height: 48)
+            .background(FlowtonePalette.signal, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.isLibraryLoading)
+        .accessibilityLabel(model.isPlaying ? "Пауза" : "Воспроизвести")
+
+        transportButton(
+          systemName: "goforward.15",
+          label: "Вперёд на 15 секунд",
+          disabled: model.currentTrack == nil
+        ) { model.seek(by: 15) }
+        transportButton(
+          systemName: "forward.end.fill",
+          label: "Следующая запись",
+          disabled: !model.canGoToNextTrack,
+          action: model.nextTrack
+        )
+
+        Button(action: model.toggleCurrentLike) {
+          Image(systemName: model.isCurrentTrackLiked ? "heart.fill" : "heart")
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundStyle(
+              model.isCurrentTrackLiked ? FlowtonePalette.signal : FlowtonePalette.ink
+            )
+            .frame(width: 40, height: 40)
+            .background(FlowtonePalette.panel, in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(model.currentTrack == nil)
+        .accessibilityLabel(model.isCurrentTrackLiked ? "Убрать из любимых" : "Добавить в любимые")
+
+        Button {
+          Task { await model.generateDevelopmentPreview() }
+        } label: {
+          HStack(spacing: 8) {
+            if model.isGenerating {
+              ProgressView().controlSize(.small)
+            } else {
+              Image(systemName: "waveform.badge.plus")
+            }
+            Text(model.generationActionTitle)
+          }
+          .font(.system(size: 12, weight: .semibold, design: .rounded))
+          .foregroundStyle(FlowtonePalette.canvas)
+          .padding(.horizontal, 16)
+          .frame(height: 42)
+          .background(FlowtonePalette.signal, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .disabled(!model.canGenerateTrack || model.isGenerating)
+      }
+
+      HStack(spacing: 10) {
+        Image(systemName: "speaker.fill")
+        Slider(value: $model.volume, in: 0...1)
+          .tint(FlowtonePalette.signal)
+          .frame(width: 180)
+        Image(systemName: "speaker.wave.2.fill")
+      }
+      .font(.system(size: 10))
+      .foregroundStyle(FlowtonePalette.muted)
+    }
+    .padding(12)
+    .background(FlowtonePalette.panel.opacity(0.52), in: RoundedRectangle(cornerRadius: 16))
+    .overlay { RoundedRectangle(cornerRadius: 16).stroke(FlowtonePalette.line) }
+  }
+
+  private func positionEditingChanged(_ editing: Bool) {
+    if editing {
+      guard !isEditingPosition else { return }
+      isEditingPosition = true
+      draftPosition = model.playbackPositionSeconds
+      previousDraftPosition = draftPosition
+      model.beginScrubbing()
+    } else {
+      guard isEditingPosition else { return }
+      isEditingPosition = false
+      model.endScrubbing()
+    }
+  }
+
+  private func transportButton(
+    systemName: String,
+    label: String,
+    disabled: Bool,
+    action: @escaping () -> Void
+  ) -> some View {
+    Button(action: action) {
+      Image(systemName: systemName)
+        .font(.system(size: 13, weight: .semibold))
+        .frame(width: 38, height: 38)
+        .background(FlowtonePalette.panel, in: Circle())
     }
     .buttonStyle(.plain)
+    .disabled(disabled)
+    .accessibilityLabel(label)
   }
 }
 
@@ -572,6 +704,13 @@ private struct TrackLibraryView: View {
 
   private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
+  private var visibleTracks: [TrackRecord] {
+    switch model.libraryFilter {
+    case .all: model.tracks
+    case .liked: model.tracks.filter(\.isLiked)
+    }
+  }
+
   var body: some View {
     VStack(spacing: 0) {
       HStack(alignment: .top) {
@@ -596,6 +735,17 @@ private struct TrackLibraryView: View {
           .foregroundStyle(FlowtonePalette.signal)
       }
       .padding(28)
+
+      Picker("Раздел коллекции", selection: $model.libraryFilter) {
+        ForEach(TrackLibraryFilter.allCases) { filter in
+          Text(filter.title).tag(filter)
+        }
+      }
+      .labelsHidden()
+      .pickerStyle(.segmented)
+      .tint(FlowtonePalette.signal)
+      .padding(.horizontal, 28)
+      .padding(.bottom, 16)
 
       HStack(spacing: 12) {
         libraryMetric(
@@ -662,23 +812,30 @@ private struct TrackLibraryView: View {
         .overlay(FlowtonePalette.line)
         .padding(.top, 18)
 
-      if model.tracks.isEmpty {
+      if visibleTracks.isEmpty {
         VStack(spacing: 9) {
-          Image(systemName: "music.note")
+          Image(systemName: model.libraryFilter == .liked ? "heart" : "music.note")
             .font(.system(size: 24))
             .foregroundStyle(FlowtonePalette.signal)
-          Text("Здесь появятся записи станции")
-            .font(.system(size: 15, weight: .medium, design: .serif))
-            .foregroundStyle(FlowtonePalette.ink)
-          Text("Создайте первую запись на главном экране")
-            .font(.system(size: 11, design: .rounded))
-            .foregroundStyle(FlowtonePalette.muted)
+          Text(
+            model.libraryFilter == .liked
+              ? "Пока нет любимых записей" : "Здесь появятся записи станции"
+          )
+          .font(.system(size: 15, weight: .medium, design: .serif))
+          .foregroundStyle(FlowtonePalette.ink)
+          Text(
+            model.libraryFilter == .liked
+              ? "Нажмите сердце у трека, который хотите сохранить"
+              : "Создайте первую запись на главном экране"
+          )
+          .font(.system(size: 11, design: .rounded))
+          .foregroundStyle(FlowtonePalette.muted)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
       } else {
         ScrollView {
           LazyVStack(spacing: 1) {
-            ForEach(model.tracks) { track in
+            ForEach(visibleTracks) { track in
               trackRow(track)
             }
           }
@@ -737,15 +894,29 @@ private struct TrackLibraryView: View {
 
   private func trackRow(_ track: TrackRecord) -> some View {
     HStack(spacing: 12) {
-      Circle()
-        .fill(track.id == model.currentTrackID ? FlowtonePalette.signal : FlowtonePalette.orbit)
-        .frame(width: 7, height: 7)
+      Button {
+        model.playTrack(trackID: track.id)
+      } label: {
+        Image(systemName: track.id == model.currentTrackID ? "waveform" : "play.fill")
+          .font(.system(size: 11, weight: .semibold))
+          .foregroundStyle(
+            track.id == model.currentTrackID ? FlowtonePalette.selectedInk : FlowtonePalette.ink
+          )
+          .frame(width: 32, height: 32)
+          .background(
+            track.id == model.currentTrackID ? FlowtonePalette.signal : FlowtonePalette.panel,
+            in: Circle()
+          )
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("Запустить трек: \(track.title)")
 
       VStack(alignment: .leading, spacing: 3) {
         Text(track.title)
           .font(.system(size: 12, weight: .semibold, design: .rounded))
           .foregroundStyle(FlowtonePalette.ink)
-          .lineLimit(1)
+          .lineLimit(2)
+          .fixedSize(horizontal: false, vertical: true)
         Text(track.createdAt.formatted(date: .abbreviated, time: .shortened))
           .font(.system(size: 9, design: .monospaced))
           .foregroundStyle(FlowtonePalette.muted)
@@ -780,7 +951,7 @@ private struct TrackLibraryView: View {
       .help(model.isTrackProtected(track.id) ? "Запись уже подготовлена к эфиру" : "Удалить запись")
     }
     .padding(.horizontal, 28)
-    .frame(height: 54)
+    .frame(minHeight: 58)
     .background(track.id == model.currentTrackID ? FlowtonePalette.panel.opacity(0.72) : .clear)
   }
 }
@@ -788,41 +959,167 @@ private struct TrackLibraryView: View {
 private struct VinylBroadcastVisual: View {
   let isSpinning: Bool
   let isPlaying: Bool
+  let isScrubbing: Bool
   let genreTitle: String
-  let trackID: UUID?
-  let trackDurationSeconds: Int
+  let progress: Double
+  let positionSeconds: TimeInterval
+  let durationSeconds: TimeInterval
+  let hasTrack: Bool
+  let onScrubBegan: () -> Void
+  let onScrubChanged: (TimeInterval, AudioScrubDirection) -> Void
+  let onScrubEnded: () -> Void
 
-  @State private var playbackStartedAt = Date()
+  @State private var lastDragAngle: Double?
+  @State private var dragPosition: TimeInterval = 0
+  @State private var dragVisualAngle: Double = 0
+  @State private var visualPhaseOffset: Double = 0
+  @State private var isHovered = false
 
   var body: some View {
-    TimelineView(.animation(minimumInterval: 1 / 30, paused: !isSpinning)) { timeline in
-      let seconds = timeline.date.timeIntervalSinceReferenceDate
-      let elapsed = max(0, timeline.date.timeIntervalSince(playbackStartedAt))
-      let grooveProgress = min(elapsed / Double(max(trackDurationSeconds, 1)), 1)
-      ZStack {
-        HStack(spacing: -18) {
-          VinylRecord(
-            angle: isSpinning ? seconds * 24 : 0,
-            genreTitle: genreTitle
-          )
-          .frame(width: 305, height: 305)
+    GeometryReader { proxy in
+      let recordDiameter = min(proxy.size.height - 12, 258)
+      let recordCenter = CGPoint(x: proxy.size.width * 0.4, y: proxy.size.height * 0.5)
+      let displayedAngle =
+        lastDragAngle == nil ? positionSeconds * 18 + visualPhaseOffset : dragVisualAngle
 
-          ToneArm(isActive: isPlaying, grooveProgress: grooveProgress)
-            .frame(width: 88, height: 250)
-            .offset(x: -8, y: -6)
-        }
+      ZStack {
+        VinylRecord(
+          angle: displayedAngle,
+          genreTitle: genreTitle
+        )
+        .frame(width: recordDiameter, height: recordDiameter)
+        .contentShape(Circle())
+        .position(recordCenter)
+        .gesture(vinylGesture(recordDiameter: recordDiameter))
+        .onHover { isHovered = $0 }
+
+        GramophoneToneArm(
+          grooveProgress: progress,
+          isEngaged: hasTrack,
+          isScrubbing: isScrubbing,
+          recordCenter: recordCenter,
+          recordRadius: recordDiameter / 2
+        )
+
+        Text(isScrubbing ? "СКРЕТЧ" : "ПОВЕРНИТЕ ПЛАСТИНКУ")
+          .font(.system(size: 9, weight: .semibold, design: .monospaced))
+          .tracking(1.3)
+          .foregroundStyle(FlowtonePalette.signal.opacity(isHovered || isScrubbing ? 1 : 0.56))
+          .padding(.horizontal, 9)
+          .padding(.vertical, 4)
+          .background(FlowtonePalette.canvas.opacity(0.82), in: Capsule())
+          .position(x: recordCenter.x, y: proxy.size.height - 16)
       }
     }
     .accessibilityElement(children: .ignore)
     .accessibilityLabel(
-      isSpinning
-        ? "Пластинка вращается, жанр \(genreTitle)"
-        : "Пластинка остановлена, жанр \(genreTitle)"
+      isScrubbing
+        ? "Скретч пластинки, жанр \(genreTitle)"
+        : (isSpinning
+          ? "Пластинка вращается, жанр \(genreTitle)"
+          : "Пластинка остановлена, жанр \(genreTitle)")
     )
-    .onChange(of: trackID) { _, _ in playbackStartedAt = Date() }
-    .onChange(of: isPlaying) { _, playing in
-      if playing { playbackStartedAt = Date() }
+    .accessibilityHint("Вращайте пластинку мышью, чтобы перематывать трек и создавать скретчи")
+  }
+
+  private func vinylGesture(recordDiameter: CGFloat) -> some Gesture {
+    DragGesture(minimumDistance: 0)
+      .onChanged { value in
+        let center = CGPoint(x: recordDiameter / 2, y: recordDiameter / 2)
+        let angle = atan2(value.location.y - center.y, value.location.x - center.x)
+
+        guard let previousAngle = lastDragAngle else {
+          dragPosition = positionSeconds
+          dragVisualAngle = positionSeconds * 18 + visualPhaseOffset
+          lastDragAngle = angle
+          onScrubBegan()
+          return
+        }
+
+        var delta = angle - previousAngle
+        if delta > .pi { delta -= 2 * .pi }
+        if delta < -.pi { delta += 2 * .pi }
+
+        let target = min(max(dragPosition + delta / (2 * .pi) * 8, 0), durationSeconds)
+        let direction: AudioScrubDirection = delta >= 0 ? .forward : .backward
+        dragPosition = target
+        dragVisualAngle += delta * 180 / .pi
+        lastDragAngle = angle
+        onScrubChanged(target, direction)
+      }
+      .onEnded { _ in
+        visualPhaseOffset = dragVisualAngle - dragPosition * 18
+        lastDragAngle = nil
+        onScrubEnded()
+      }
+  }
+}
+
+private struct GramophoneToneArm: View {
+  let grooveProgress: Double
+  let isEngaged: Bool
+  let isScrubbing: Bool
+  let recordCenter: CGPoint
+  let recordRadius: CGFloat
+
+  var body: some View {
+    Canvas { context, size in
+      let pivot = CGPoint(x: size.width * 0.87, y: size.height * 0.13)
+      let progress = min(max(grooveProgress, 0), 1)
+      let grooveRadius = recordRadius * (0.79 - progress * 0.43)
+      let grooveAngle = (-24 + progress * 7) * .pi / 180
+      let engagedPoint = CGPoint(
+        x: recordCenter.x + cos(grooveAngle) * grooveRadius,
+        y: recordCenter.y + sin(grooveAngle) * grooveRadius
+      )
+      let stylus =
+        isEngaged
+        ? engagedPoint
+        : CGPoint(x: pivot.x - recordRadius * 0.12, y: pivot.y + recordRadius * 0.86)
+
+      var shadow = Path()
+      shadow.move(to: CGPoint(x: pivot.x + 3, y: pivot.y + 5))
+      shadow.addLine(to: CGPoint(x: stylus.x + 3, y: stylus.y + 5))
+      context.stroke(shadow, with: .color(.black.opacity(0.46)), lineWidth: 10)
+
+      var arm = Path()
+      arm.move(to: pivot)
+      arm.addLine(to: stylus)
+      context.stroke(
+        arm,
+        with: .linearGradient(
+          Gradient(colors: [FlowtonePalette.ink.opacity(0.88), FlowtonePalette.copper]),
+          startPoint: pivot,
+          endPoint: stylus
+        ),
+        style: StrokeStyle(lineWidth: 7, lineCap: .round)
+      )
+
+      context.fill(
+        Path(ellipseIn: CGRect(x: pivot.x - 23, y: pivot.y - 23, width: 46, height: 46)),
+        with: .color(FlowtonePalette.panelWarm)
+      )
+      context.stroke(
+        Path(ellipseIn: CGRect(x: pivot.x - 23, y: pivot.y - 23, width: 46, height: 46)),
+        with: .color(FlowtonePalette.copper),
+        lineWidth: 2
+      )
+      context.fill(
+        Path(
+          roundedRect: CGRect(x: stylus.x - 13, y: stylus.y - 7, width: 26, height: 14),
+          cornerRadius: 4),
+        with: .color(FlowtonePalette.signal)
+      )
+      context.fill(
+        Path(ellipseIn: CGRect(x: stylus.x - 3, y: stylus.y - 3, width: 6, height: 6)),
+        with: .color(FlowtonePalette.ink)
+      )
     }
+    .animation(
+      isScrubbing ? nil : .spring(response: 0.58, dampingFraction: 0.82),
+      value: grooveProgress
+    )
+    .allowsHitTesting(false)
   }
 }
 
@@ -897,47 +1194,6 @@ private struct VinylRecord: View {
     }
     .shadow(color: .black.opacity(0.62), radius: 28, y: 20)
     .shadow(color: FlowtonePalette.signal.opacity(0.08), radius: 36)
-  }
-}
-
-private struct ToneArm: View {
-  let isActive: Bool
-  let grooveProgress: Double
-
-  private var angle: Double {
-    guard isActive else { return -7 }
-    // The pickup starts at the outer edge and slowly travels left, toward the record centre.
-    return 10 + (grooveProgress * 12)
-  }
-
-  var body: some View {
-    ZStack(alignment: .top) {
-      Circle()
-        .fill(FlowtonePalette.panelWarm)
-        .frame(width: 42, height: 42)
-        .overlay { Circle().stroke(FlowtonePalette.copper, lineWidth: 2) }
-
-      VStack(spacing: -2) {
-        Capsule()
-          .fill(
-            LinearGradient(
-              colors: [FlowtonePalette.ink.opacity(0.82), FlowtonePalette.copper],
-              startPoint: .leading,
-              endPoint: .trailing
-            )
-          )
-          .frame(width: 8, height: 184)
-
-        RoundedRectangle(cornerRadius: 3)
-          .fill(FlowtonePalette.signal)
-          .frame(width: 25, height: 14)
-          .rotationEffect(.degrees(5))
-          .offset(x: 7)
-      }
-      .rotationEffect(.degrees(angle), anchor: .top)
-      .offset(y: 26)
-      .animation(.spring(response: 0.7, dampingFraction: 0.72), value: isActive)
-    }
   }
 }
 

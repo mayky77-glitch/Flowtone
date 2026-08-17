@@ -13,12 +13,9 @@ public struct TrackTitleGenerator: Sendable {
       case .balanced: 1
       case .driving: 2
       }
-    let index = Int((seed &+ UInt64(energyOffset)) % UInt64(candidates.count))
+    let vibeOffset = Self.stableTextHash(configuration.vibe ?? "")
+    let index = Int((seed &+ vibeOffset &+ UInt64(energyOffset)) % UInt64(candidates.count))
     let base = candidates[index]
-
-    if let vibe = Self.vibeFragment(configuration.vibe) {
-      return "\(base) · \(vibe)"
-    }
 
     let moodCandidates = Self.moodTitles[configuration.mood] ?? []
     guard !moodCandidates.isEmpty else { return base }
@@ -36,18 +33,22 @@ public struct TrackTitleGenerator: Sendable {
     return TrackTitleGenerator().title(for: configuration, seed: seed)
   }
 
-  private static func vibeFragment(_ vibe: String?) -> String? {
-    guard let vibe else { return nil }
-    let words =
-      vibe
-      .replacingOccurrences(of: "\n", with: " ")
-      .replacingOccurrences(of: "\r", with: " ")
-      .split(whereSeparator: { $0.isWhitespace || ",;.!?".contains($0) })
-      .prefix(4)
-      .map(String.init)
-    guard !words.isEmpty else { return nil }
-    let phrase = words.joined(separator: " ")
-    return phrase.prefix(1).uppercased() + phrase.dropFirst()
+  /// Repairs names created by the old implementation, which could end on a cut-off vibe phrase.
+  public static func normalizedExistingTitle(_ title: String, genres: [String], seed: UInt64)
+    -> String
+  {
+    let lastWord = title.split(separator: " ").last?.lowercased() ?? ""
+    let danglingWords: Set<String> = [
+      "в", "во", "на", "по", "из", "для", "с", "со", "к", "о", "об", "под", "над",
+    ]
+    guard title.count > 44 || danglingWords.contains(lastWord) else { return title }
+    return legacyTitle(genres: genres, seed: seed)
+  }
+
+  private static func stableTextHash(_ text: String) -> UInt64 {
+    text.utf8.reduce(1_469_598_103_934_665_603) { value, byte in
+      (value ^ UInt64(byte)) &* 1_099_511_628_211
+    }
   }
 
   private static let moodTitles: [StationMood: [String]] = [
@@ -66,7 +67,9 @@ public struct TrackTitleGenerator: Sendable {
     "Electronic": ["Импуль города", "Цифровое тепло", "Контур тока"],
     "Post-rock": ["Море антенн", "Долгий подъём", "Свет после бури"],
     "Light Rave": ["Мягкий строб", "Неоновый разгон", "Рассветный рейв"],
-    "Fantasy": ["Лесная легенда", "Дорога к башне", "Серебряная карта"],
+    "Fantasy": [
+      "Корона древних", "Зов рун", "Пламя героев", "Тёмный перевал", "Лесная легенда",
+    ],
     "Rock": ["Открытая трасса", "Усилители на закате", "Громче ветра"],
     "Metal": ["Стальной прилив", "Чёрное пламя", "Тяжёлая звезда"],
     "Thrash Metal": ["Точка удара", "Ржавый вихрь", "Скорость без тормозов"],

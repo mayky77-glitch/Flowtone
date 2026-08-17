@@ -4,7 +4,7 @@ import Testing
 
 @Suite("TrackTitleGenerator")
 struct TrackTitleGeneratorTests {
-  @Test("Title is deterministic and reflects genre, mood, and vibe")
+  @Test("Title is deterministic, short, and does not copy a raw vibe fragment")
   func deterministicVibeTitle() {
     let configuration = StationConfiguration(
       genres: ["Light Rave"],
@@ -18,8 +18,9 @@ struct TrackTitleGeneratorTests {
     let second = TrackTitleGenerator().title(for: configuration, seed: 42)
 
     #expect(first == second)
-    #expect(first.contains("Ночной город"))
+    #expect(first.contains("ночной город") == false)
     #expect(first.contains("·"))
+    #expect(first.count <= 44)
   }
 
   @Test("Track library assigns a generated title during import")
@@ -51,7 +52,20 @@ struct TrackTitleGeneratorTests {
       )
     )
 
-    #expect(track.title.contains("Зачарованный лес"))
+    #expect(track.title.contains("зачарованный лес") == false)
     #expect(track.title.isEmpty == false)
+    #expect(track.title.count <= 44)
+  }
+
+  @Test("Old title ending with a cut-off preposition is repaired")
+  func repairsOldCutOffTitle() {
+    let title = TrackTitleGenerator.normalizedExistingTitle(
+      "Мягкий строб · Величавое темное фэнтези по",
+      genres: ["Light Rave"],
+      seed: 9
+    )
+
+    #expect(title.count <= 44)
+    #expect(title.hasSuffix(" по") == false)
   }
 }

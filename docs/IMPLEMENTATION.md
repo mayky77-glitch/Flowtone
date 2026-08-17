@@ -8,6 +8,7 @@
 SwiftUI App
     └── FlowtoneCore
         ├── StationConfiguration + PromptComposer
+        ├── GenrePromptCatalog + TempoPlanner
         ├── ModelRecommender + ResourcePolicy
         ├── GenerationScheduler (actor, one job)
         ├── TrackTitleGenerator (local deterministic names)
@@ -55,13 +56,17 @@ Library/
 └── Incoming/
 ```
 
-JSON index хранит название, жанры, лайк, размер, длительность, model engine, seed и playback history. При превышении лимита сначала удаляются самые давно не воспроизводившиеся треки без лайка. Лайкнутый и текущий трек защищены.
+JSON index хранит название, жанры, лайк, размер, длительность, model engine, seed и playback metadata. При превышении лимита сначала удаляются самые давно не воспроизводившиеся треки без лайка. Лайкнутый и текущий трек защищены.
 
 Текущий и оба подготовленных трека защищены от ручной и автоматической очистки. Player заранее
 планирует следующий файл, а `AudioPlaybackController` определяет момент перехода по render time.
 SwiftUI-таймер только вызывает наблюдение за render clock; он не рассчитывает позицию аудио.
 
-Названия создаются локально и детерминированно из genre + energy + mood + vibe + seed. Это не требует отдельного запуска LLM. Старые index records без `title` получают стабильное fallback-название при декодировании.
+Названия создаются локально и детерминированно из genre + energy + mood + vibe-hash + seed. Сырой vibe не копируется в заголовок, поэтому он не обрывается на предлоге. Старые обрезанные titles и index records без `title` получают стабильное fallback-название при декодировании.
+
+`TempoPlanner` выбирает BPM из жанровых диапазонов, смещает его по энергии и иногда даёт ограниченное отклонение. `GenrePromptCatalog` задаёт для 20 жанров ритм, тембры и фактуру; Fantasy имеет пять отдельных профилей: historical, magical, heroic, dark и ancient cave ritual.
+
+Player поддерживает seek, начало/конец, ±15 секунд, previous/next по session history и запуск выбранного трека из коллекции. Vinyl drag перемещает ту же audio position; forward/reverse preview использует чередующиеся player nodes, короткие PCM-буферы с envelope и varispeed. При pause автовращение останавливается; тонарм идёт к центру по реальному progress.
 
 ## Stable Audio 3 Small MLX
 
@@ -128,7 +133,7 @@ sa3 --prompt <prompt> --negative-prompt <negative> \
 ## Current limitations
 
 - Полный Xcode не установлен; SwiftPM build/test работает через Command Line Tools.
-- Настоящие model weights ещё не загружены и benchmark не запускался.
+- Веса не входят в Git/сборку. На тестовом M4/16 ГБ official Small-Music MLX runtime установлен вне репозитория; offline 30-second benchmark прошёл за 7.68 с process wall / 4.81 с model wall с stage peak 1.69 ГБ.
 - Есть локальная UI-отметка о личном прочтении официальных страниц; она не принимает external terms и не даёт доступ к gated weights. Нет automatic downloader, checksum/provisioning или bundled weights.
 - ACE-Step quality adapter ещё не реализован.
 - Скрипт создаёт рабочий, но неподписанный `.app`. Signing/notarization намеренно вне scope repository Actions artifact и требуют отдельного решения владельца и credentials.
@@ -136,7 +141,7 @@ sa3 --prompt <prompt> --negative-prompt <negative> \
 
 ## Next implementation slice
 
-1. Запустить один воспроизводимый Stable Audio benchmark после ручного принятия model/Gemma terms.
+1. Проверить лёгкий runtime на M1/M2 с 8–16 ГБ.
 2. Проверить ACE-Step adapter для quality tier.
 3. Signing/notarization остаются вне scope unsigned repository artifact; рассмотреть их только после отдельного решения владельца и получения credentials.
 

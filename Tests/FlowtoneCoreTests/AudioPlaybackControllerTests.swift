@@ -17,6 +17,7 @@ struct AudioPlaybackControllerTests {
     #expect(controller.currentID == current.id)
     #expect(controller.queuedID == next.id)
     #expect(backend.scheduled.map(\.node) == [.primary, .secondary])
+    #expect(backend.scheduled.map(\.startingAt) == [0, 0])
     #expect(backend.volumes[.primary] == 1)
     #expect(backend.volumes[.secondary] == 0)
   }
@@ -148,6 +149,91 @@ struct AudioPlaybackControllerTests {
     #expect(requested == [next.id])
   }
 
+  @Test("Seek clamps positions, preserves the queue, and resumes playback")
+  func seekPreservesQueueAndPlayback() throws {
+    let backend = TestBackend(durations: [10, 8, 10, 8, 10, 8, 10, 8])
+    let clock = TestClock(now: 0)
+    let controller = AudioPlaybackController(
+      backend: backend,
+      clock: clock,
+      gainProvider: { _ in (1, 0) }
+    )
+    try controller.load(current: item(1), next: item(2), crossfadeDuration: 2)
+    try controller.play()
+    clock.now = 3
+
+    try controller.seek(to: 7)
+    #expect(controller.position == 7)
+    #expect(controller.isPlaying)
+    #expect(controller.queuedID == item(2).id)
+    #expect(backend.scheduled.map(\.startingAt) == [0, 0, 7, 0])
+
+    try controller.seek(to: -.infinity)
+    #expect(controller.position == 0)
+    try controller.seek(to: .infinity)
+    #expect(controller.position > 9.99)
+    #expect(controller.position < 10)
+  }
+
+  @Test("Vinyl scrub auditions direction and restores prior playback state")
+  func vinylScrubRestoresPlayback() throws {
+    let backend = TestBackend(durations: [10, 8, 10, 8])
+    let clock = TestClock(now: 0)
+    let controller = AudioPlaybackController(
+      backend: backend,
+      clock: clock,
+      gainProvider: { _ in (1, 0) }
+    )
+    try controller.load(current: item(1), next: item(2), crossfadeDuration: 2)
+    try controller.play()
+    clock.now = 2
+
+    try controller.beginScrubbing()
+    try controller.scrub(to: 6, direction: .backward)
+
+    #expect(controller.isScrubbing)
+    #expect(!controller.isPlaying)
+    #expect(controller.position == 6)
+    #expect(backend.previews.count == 1)
+    #expect(backend.previews.first?.position == 6)
+    #expect(backend.previews.first?.direction == .backward)
+
+    try controller.endScrubbing()
+    #expect(!controller.isScrubbing)
+    #expect(controller.isPlaying)
+    #expect(controller.position == 6)
+    #expect(controller.queuedID == item(2).id)
+    #expect(backend.scheduled.map(\.startingAt) == [0, 0, 6, 0])
+  }
+
+  @Test("Scratch previews are throttled and alternate nodes for smoother overlap")
+  func scratchPreviewCadence() throws {
+    let backend = TestBackend(durations: [10])
+    let clock = TestClock(now: 1)
+    let controller = AudioPlaybackController(
+      backend: backend,
+      clock: clock,
+      gainProvider: { _ in (1, 0) }
+    )
+    try controller.load(current: item(1), crossfadeDuration: 0)
+    try controller.beginScrubbing()
+
+    try controller.scrub(to: 2, direction: .forward)
+    clock.now = 1.03
+    try controller.scrub(to: 3, direction: .forward)
+    #expect(controller.position == 3)
+    #expect(backend.previews.count == 1)
+
+    clock.now = 1.09
+    try controller.scrub(to: 4, direction: .forward)
+    #expect(backend.previews.map(\.node) == [.primary, .secondary])
+
+    clock.now = 1.18
+    try controller.scrub(to: 3.5, direction: .backward)
+    #expect(backend.previews.map(\.direction) == [.forward, .forward, .backward])
+    #expect(backend.previews.map(\.node) == [.primary, .secondary, .primary])
+  }
+
   private func makeController(backend: TestBackend) -> AudioPlaybackController {
     AudioPlaybackController(
       backend: backend,
@@ -174,10 +260,19 @@ private final class TestBackend: AudioPlaybackBackend {
   struct Scheduled {
     let item: AudioPlaybackItem
     let node: AudioPlaybackNode
+    let startingAt: TimeInterval
+  }
+
+  struct Preview {
+    let item: AudioPlaybackItem
+    let node: AudioPlaybackNode
+    let position: TimeInterval
+    let direction: AudioScrubDirection
   }
 
   var durations: [TimeInterval]
   var scheduled: [Scheduled] = []
+  var previews: [Preview] = []
   var played: [AudioPlaybackNode] = []
   var stopped: [AudioPlaybackNode] = []
   var volumes: [AudioPlaybackNode: Float] = [:]
@@ -185,9 +280,22 @@ private final class TestBackend: AudioPlaybackBackend {
 
   init(durations: [TimeInterval]) { self.durations = durations }
 
-  func schedule(_ item: AudioPlaybackItem, on node: AudioPlaybackNode) throws -> TimeInterval {
-    scheduled.append(Scheduled(item: item, node: node))
+  func schedule(
+    _ item: AudioPlaybackItem,
+    on node: AudioPlaybackNode,
+    startingAt position: TimeInterval
+  ) throws -> TimeInterval {
+    scheduled.append(Scheduled(item: item, node: node, startingAt: position))
     return durations.removeFirst()
+  }
+
+  func preview(
+    _ item: AudioPlaybackItem,
+    on node: AudioPlaybackNode,
+    at position: TimeInterval,
+    direction: AudioScrubDirection
+  ) throws {
+    previews.append(Preview(item: item, node: node, position: position, direction: direction))
   }
 
   func startEngine() throws {}

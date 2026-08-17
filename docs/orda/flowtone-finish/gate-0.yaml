@@ -4,7 +4,7 @@ objective: Complete all safe Flowtone runtime work that does not require accepti
 project_root: /Users/x/Documents/ChatGPT/радио
 published_base_sha: gate0-card-commit
 wave_base_sha: gate0-card-commit
-shared_contract_sha: a2ef3c4cd80e5778be7b8204bb01b531fc54035c
+shared_contract_sha: 2aad8e55cdf3bf2a2275f48ca1b9ac5d67b4163e
 wave: 1
 max_parallel: 3
 max_spawns: 5

@@ -12,7 +12,7 @@ card_path: docs/orda/flowtone-finish/crossfade-math.md
 card_commit_sha: launch-envelope
 base_sha: gate0-card-commit
 dependency_shas:
-  - a2ef3c4cd80e5778be7b8204bb01b531fc54035c
+  - 2aad8e55cdf3bf2a2275f48ca1b9ac5d67b4163e
 branch: codex/flowtone-crossfade-math
 branch_base_sha: gate0-card-commit
 write_scope:

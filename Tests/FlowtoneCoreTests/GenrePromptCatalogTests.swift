@@ -4,30 +4,43 @@ import Testing
 
 @Suite("GenrePromptCatalog")
 struct GenrePromptCatalogTests {
-  @Test("Fantasy has five distinct historical and magical variants")
+  @Test("Fantasy includes broad historical, magical and requested worlds")
   func fantasyVariety() {
     let catalog = GenrePromptCatalog()
-    let profiles = Set((0..<100).map { catalog.profile(for: "Fantasy", seed: UInt64($0)) })
+    let presets = catalog.presets(for: "Fantasy")
 
-    #expect(catalog.profileCount(for: "Fantasy") == 5)
-    #expect(profiles.count == 5)
-    #expect(profiles.contains(where: { $0.contains("historical fantasy") }))
-    #expect(profiles.contains(where: { $0.contains("magical fantasy") }))
-    #expect(profiles.contains(where: { $0.contains("heroic fantasy") }))
-    #expect(profiles.contains(where: { $0.contains("dark fantasy") }))
-    #expect(profiles.contains(where: { $0.contains("cave fantasy") }))
+    #expect(presets.count >= 16)
+    #expect(presets.contains(where: { $0.title.contains("Overlord") }))
+    #expect(presets.contains(where: { $0.title.contains("Skyrim") }))
+    #expect(presets.contains(where: { $0.productionPrompt.contains("celesta") }))
+    #expect(presets.contains(where: { $0.productionPrompt.contains("war drums") }))
+    #expect(presets.contains(where: { $0.productionPrompt.contains("stone echoes") }))
   }
 
-  @Test(
-    "Every station genre has multiple production profiles",
-    arguments: [
-      "Ambient", "Lo-fi", "Light Rave", "Fantasy", "Rock", "Metal", "Thrash Metal",
-      "Cute", "Chaos", "Electronic", "Synthwave", "House", "Techno", "Drum and Bass",
-      "Hip-hop", "Funk", "Jazz", "Classical", "Post-rock", "Cinematic",
-    ])
-  func allGenresAreProfiled(genre: String) {
+  @Test("Every station genre has at least ten unique presets")
+  func allGenresAreProfiled() {
     let catalog = GenrePromptCatalog()
-    #expect(catalog.profileCount(for: genre) >= 3)
-    #expect(catalog.profile(for: genre, seed: 1).isEmpty == false)
+    for genre in GenrePromptCatalog.supportedGenres {
+      let presets = catalog.presets(for: genre)
+      #expect(presets.count >= 10, "\(genre) has too few presets")
+      #expect(Set(presets.map(\.id)).count == presets.count)
+      #expect(presets.allSatisfy { !$0.productionPrompt.isEmpty })
+    }
+    #expect(
+      GenrePromptCatalog.supportedGenres
+        .map { catalog.profileCount(for: $0) }
+        .reduce(0, +) == 292)
+  }
+
+  @Test("Explicit preset wins over random seed without putting franchise names in the prompt")
+  func explicitPreset() throws {
+    let catalog = GenrePromptCatalog()
+    let preset = try #require(
+      catalog.presets(for: "Fantasy").first(where: { $0.title.contains("Skyrim") }))
+
+    let prompt = catalog.profile(for: "Fantasy", seed: 99, presetID: preset.id)
+
+    #expect(prompt == preset.productionPrompt)
+    #expect(!prompt.localizedCaseInsensitiveContains("Skyrim"))
   }
 }

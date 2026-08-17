@@ -1,124 +1,546 @@
 import Foundation
 
+public struct GenrePreset: Equatable, Identifiable, Sendable {
+  public let id: String
+  public let title: String
+  public let productionPrompt: String
+
+  public init(id: String, title: String, productionPrompt: String) {
+    self.id = id
+    self.title = title
+    self.productionPrompt = productionPrompt
+  }
+}
+
 /// Genre-specific production language for the local text-to-music model.
 public struct GenrePromptCatalog: Sendable {
+  public static let supportedGenres = [
+    "Ambient", "Lo-fi", "Light Rave", "Fantasy", "Pirate", "Rock", "Metal",
+    "Thrash Metal", "Cute", "Chaos", "Electronic", "Synthwave", "House", "Techno",
+    "Hard Techno", "Industrial Techno", "Hardcore", "Psytrance", "Breakbeat",
+    "Drum and Bass", "Cyberpunk", "Hip-hop", "Funk", "Jazz", "Classical", "Post-rock",
+    "Cinematic",
+  ]
+
   public init() {}
 
-  public func profile(for genre: String, seed: UInt64) -> String {
-    let profiles = Self.profiles[genre] ?? [Self.fallback]
-    return profiles[Int(Self.mix(seed) % UInt64(profiles.count))]
+  public func presets(for genre: String) -> [GenrePreset] {
+    let definition = Self.definitions[genre] ?? Self.fallback
+    return definition.archetypes.flatMap { archetype in
+      Self.arrangements.map { arrangement in
+        GenrePreset(
+          id: "\(archetype.id)-\(arrangement.id)",
+          title: "\(archetype.title) · \(arrangement.title)",
+          productionPrompt: "\(definition.base), \(archetype.detail), \(arrangement.detail)"
+        )
+      }
+    }
+  }
+
+  public func profile(for genre: String, seed: UInt64, presetID: String? = nil) -> String {
+    let candidates = presets(for: genre)
+    if let presetID, let selected = candidates.first(where: { $0.id == presetID }) {
+      return selected.productionPrompt
+    }
+    return candidates[Int(Self.mix(seed) % UInt64(candidates.count))].productionPrompt
   }
 
   public func profileCount(for genre: String) -> Int {
-    (Self.profiles[genre] ?? [Self.fallback]).count
+    presets(for: genre).count
   }
 
-  private static let fallback =
-    "instrumental ensemble, recognizable genre rhythm, natural dynamics, coherent musical development"
+  private struct Archetype: Sendable {
+    let id: String
+    let title: String
+    let detail: String
+  }
 
-  private static let profiles: [String: [String]] = [
-    "Ambient": [
-      "ambient soundscape, evolving warm synthesizer pads, long drones, sparse piano, no drums, spacious natural reverb",
-      "ambient minimalism, slow harmonic movement, granular air, soft field texture, restrained pulse, deep stereo space",
-      "organic ambient, bowed textures, breathy woodwinds, low drone, gentle overtones, gradual development",
-    ],
-    "Lo-fi": [
-      "lo-fi hip-hop instrumental, dusty boom-bap drums, mellow Rhodes chords, rounded bass, subtle tape flutter",
-      "lo-fi study beat, sampled jazz guitar, soft kick and snare, relaxed swing, warm cassette texture",
-      "lo-fi instrumental, muted piano loop, brushed drums, gentle sub bass, vinyl crackle, intimate room sound",
-    ],
-    "Light Rave": [
-      "light euphoric rave instrumental, buoyant four-on-the-floor kick, piano stabs, bright arpeggios, airy breakdown",
-      "melodic rave instrumental, crisp breakbeat accents, elastic bass, playful synth hook, warm sunrise energy",
-      "soft warehouse rave, steady club kick, shimmering pads, restrained acid sequence, joyful gradual build",
-    ],
-    "Fantasy": [
-      "majestic historical fantasy score, noble French horns, sweeping strings, frame drums, lute and hammered dulcimer, modal medieval melody, ancient kingdom atmosphere",
-      "magical fantasy instrumental, celesta, harp harmonics, glockenspiel, breathy flutes and soft strings, mysterious enchanted forest, sparkling orchestration",
-      "heroic fantasy score, bold brass calls, urgent string ostinato, large war drums, soaring modal theme, legendary quest and triumphant castle finale",
-      "dark fantasy instrumental, low strings, bassoon, hurdy-gurdy drone, distant choir-like pads without voices, ritual drums, ruined fortress and ominous magic",
-      "ancient cave fantasy ritual, deep frame drums, bone-flute timbre, primitive plucked strings, low drones, stone chamber echoes, forgotten runes and elemental magic",
-    ],
-    "Rock": [
-      "rock instrumental, live acoustic drum kit, electric bass, crunchy rhythm guitars, memorable lead-guitar hook, human dynamics",
-      "alternative rock instrumental, clean delayed guitar verse, overdriven chorus, melodic bass, roomy live drums",
-      "garage rock instrumental, raw guitar riff, punchy bass, loose energetic drums, compact song form",
-    ],
-    "Metal": [
-      "heavy metal instrumental, down-tuned distorted guitars, tight double-kick drums, powerful bass, harmonized lead guitars",
-      "doom metal instrumental, massive slow guitar riffs, dark bass, spacious toms, ominous sustained harmony",
-      "progressive metal instrumental, precise syncopated riffs, changing meter, articulate drums, melodic guitar climax",
-    ],
-    "Thrash Metal": [
-      "thrash metal instrumental, very fast palm-muted low-string guitar riffs, galloping bass, relentless double-kick drums, sharp rhythmic stops",
-      "classic thrash instrumental, rapid power-chord articulation, aggressive snare, tremolo-picked lead, compact mosh riff changes",
-      "technical thrash metal instrumental, angular chromatic riffs, fast alternate picking, precise drums, short virtuosic guitar solo",
-    ],
-    "Cute": [
-      "cute playful instrumental, toy piano, pizzicato strings, ukulele, glockenspiel, tiny bouncy drums, smiling melody",
-      "kawaii electronic instrumental, bright chiptune lead, bubbly synthesizer bass, handclaps, candy-colored chord changes",
-      "gentle cute music, music box, soft marimba, plucked strings, little bell accents, cozy storybook mood",
-    ],
-    "Chaos": [
-      "controlled experimental chaos, polymetric drums, dissonant brass bursts, fractured electronic glitches, coherent rising arc",
-      "avant-garde instrumental, irregular accents, prepared piano, noisy percussion, sudden contrasts connected by a recurring motif",
-      "glitch chaos instrumental, sliced rhythms, unstable synthesizer pitch, distorted textures, deliberate tension and structured release",
-    ],
-    "Electronic": [
-      "electronic instrumental, sequenced analog arpeggios, precise drum machine, deep synthesizer bass, evolving filtered hook",
-      "downtempo electronica, syncopated beat, glassy synth plucks, warm sub bass, detailed atmospheric production",
-      "melodic electronic instrumental, layered synthesizers, pulsing bass, crisp drums, clear verse-build-release structure",
-    ],
-    "Synthwave": [
-      "synthwave instrumental, analog poly-synth chords, gated snare, arpeggiated bass, neon lead melody, cinematic 1980s production",
-      "dark synthwave instrumental, driving sequencer, heavy electronic drums, minor-key pads, tense night-road atmosphere",
-      "dreamwave instrumental, soft vintage synthesizers, chorus guitar, glowing bass pulse, nostalgic melodic hook",
-    ],
-    "House": [
-      "house instrumental, four-on-the-floor kick, offbeat hi-hat, syncopated bassline, piano stabs, smooth club arrangement",
-      "deep house instrumental, warm sub bass, shuffled percussion, soulful electric-piano chords, restrained hypnotic build",
-      "disco house instrumental, filtered rhythm guitar, elastic bass, bright strings, crisp four-on-the-floor groove",
-    ],
-    "Techno": [
-      "hypnotic techno instrumental, repetitive four-on-the-floor kick, minimal harmony, metallic percussion, slowly evolving filter movement",
-      "Detroit-inspired techno instrumental, machine-funk drums, futuristic chord stabs, rolling bass sequence, spacious delay",
-      "industrial techno instrumental, hard kick, rumbling low end, mechanical percussion, austere motif, controlled warehouse intensity",
-    ],
-    "Drum and Bass": [
-      "drum and bass instrumental, fast chopped breakbeats, deep Reese bass, precise sub bass, atmospheric pads, energetic drops",
-      "liquid drum and bass instrumental, rolling breakbeat, warm bass, jazz-inflected electric piano, airy melodic layers",
-      "dark neuro drum and bass instrumental, intricate break edits, modulated bass design, tense ambience, clean powerful mix",
-    ],
-    "Hip-hop": [
-      "boom-bap hip-hop instrumental, sampled soul chords, swung kick and snare, warm bassline, turntable texture, no rap",
-      "jazz hip-hop instrumental, upright bass, Rhodes piano, dusty breakbeat, subtle horn fragments, relaxed pocket",
-      "modern trap instrumental, deep 808 bass, crisp hi-hat patterns, sparse minor-key keys, cinematic drum accents, no vocals",
-    ],
-    "Funk": [
-      "funk instrumental, syncopated electric bass, muted rhythm-guitar chanks, clavinet, tight drums, sharp brass punches",
-      "deep funk instrumental, dry drum pocket, wah guitar, organ stabs, melodic bass fills, live-room energy",
-      "electro-funk instrumental, slap bass, analog synth lead, handclaps, talk-box-like synth without voice, playful groove",
-    ],
-    "Jazz": [
-      "acoustic jazz trio instrumental, swinging ride cymbal, upright bass walking line, piano improvisation, natural club-room dynamics",
-      "cool jazz instrumental, brushed drums, muted trumpet, upright bass, spacious piano voicings, understated melodic improvisation",
-      "modal jazz instrumental, tenor saxophone, driving ride cymbal, open quartal piano chords, extended organic development",
-    ],
-    "Classical": [
-      "baroque classical instrumental, contrapuntal strings, harpsichord continuo, elegant voice leading, intimate chamber acoustics",
-      "classical chamber music, string quartet, balanced sonata-like development, clear acoustic articulation, expressive dynamics",
-      "romantic orchestral instrumental, lyrical strings, woodwind colors, noble brass, broad dynamic arc, concert-hall realism",
-    ],
-    "Post-rock": [
-      "post-rock instrumental, clean delayed guitars, patient bass motif, spacious drums, long cinematic crescendo into wide distortion",
-      "atmospheric post-rock, tremolo guitar layers, bowed textures, slow tom pattern, gradual emotional build and release",
-      "minimal post-rock instrumental, repeating clean-guitar figure, warm bass, restrained kit, expansive cathartic finale",
-    ],
-    "Cinematic": [
-      "cinematic instrumental score, narrative string theme, brass and orchestral percussion, clear dramatic arc, realistic orchestration",
-      "intimate cinematic score, felt piano, chamber strings, subtle pulses, evolving emotional motif, detailed acoustic space",
-      "epic cinematic instrumental, low string ostinato, broad horns, large drums, rising tension, memorable triumphant resolution",
-    ],
+  private struct Definition: Sendable {
+    let base: String
+    let archetypes: [Archetype]
+  }
+
+  private struct Arrangement: Sendable {
+    let id: String
+    let title: String
+    let detail: String
+  }
+
+  private static func a(_ id: String, _ title: String, _ detail: String) -> Archetype {
+    Archetype(id: id, title: title, detail: detail)
+  }
+
+  private static let arrangements = [
+    Arrangement(
+      id: "steady",
+      title: "ровный эфир",
+      detail:
+        "controlled radio arrangement, stable groove, patient development, restrained transitions"
+    ),
+    Arrangement(
+      id: "charged",
+      title: "живой разгон",
+      detail:
+        "active arrangement, stronger rhythmic motion, surprising but coherent contrast, decisive climax"
+    ),
+  ]
+
+  private static let fallback = Definition(
+    base: "instrumental ensemble, recognizable genre language, natural dynamics",
+    archetypes: [
+      a("organic", "Живой ансамбль", "acoustic colors and human timing"),
+      a("electric", "Электрический контур", "electric timbres and a memorable hook"),
+      a("minimal", "Чистый минимализм", "few elements with precise repetition"),
+      a("cinematic", "Широкий кадр", "narrative arc and spacious production"),
+      a("experimental", "Неожиданный поворот", "unusual texture anchored by a recurring motif"),
+    ]
+  )
+
+  private static let definitions: [String: Definition] = [
+    "Ambient": Definition(
+      base: "ambient instrumental, spacious natural reverb, slow harmonic movement, no drums",
+      archetypes: [
+        a("warm-pads", "Тёплые облака", "evolving analog pads, low drone, sparse felt piano"),
+        a("organic-air", "Дыхание леса", "breathy woodwinds, bowed textures, gentle overtones"),
+        a("granular-night", "Зерно ночи", "granular air, distant chimes, dark subharmonic bed"),
+        a("oceanic", "Глубокая вода", "slow tidal swells, glass harmonics, wide stereo space"),
+        a(
+          "cosmic", "Тихая орбита",
+          "weightless synthesizer layers, subtle pulses, luminous upper partials"),
+      ]
+    ),
+    "Lo-fi": Definition(
+      base: "lo-fi instrumental, warm cassette texture, relaxed pocket, intimate room sound",
+      archetypes: [
+        a("study", "Поздняя учёба", "dusty boom-bap drums, mellow Rhodes chords, rounded bass"),
+        a("rain", "Дождь на кассете", "muted piano loop, brushed drums, rain-like tape hiss"),
+        a("jazz-guitar", "Старое кафе", "sampled jazz guitar, upright-like bass, soft swung snare"),
+        a("window", "Окно во двор", "music-box fragment, lazy breakbeat, neighborhood ambience"),
+        a("sunset", "Закатный бит", "electric piano, nylon guitar flecks, warm side-chained pads"),
+      ]
+    ),
+    "Light Rave": Definition(
+      base:
+        "instrumental European rave, clean club low end, buoyant four-on-the-floor pulse, no crowd and no vocals",
+      archetypes: [
+        a(
+          "berlin-room", "Берлинская комната",
+          "raw warehouse drums, rolling bass, concise trance stabs"),
+        a(
+          "hard-dance", "Упругий танцпол",
+          "bouncy hard-dance bass, bright rave chords, playful syncopation"),
+        a(
+          "euphoric", "Эйфория на рассвете", "euphoric trance arpeggio, piano lift, airy breakdown"),
+        a("acid", "Мягкая кислота", "restrained acid sequence, crisp hats, warm filtered build"),
+        a("break-rave", "Ломаный строб", "breakbeat accents, elastic bass, short rave-synth hook"),
+        a(
+          "hard-groove", "Берлинский hard groove",
+          "tribal rolling drums, syncopated toms, short metallic loop"),
+        a("euro", "Еврорейв", "bright supersaw chord, galloping bass, playful retro dance motif"),
+      ]
+    ),
+    "Fantasy": Definition(
+      base:
+        "instrumental historical fantasy score, modal melody, realistic acoustic orchestration, ancient world atmosphere",
+      archetypes: [
+        a(
+          "kingdom", "Древнее королевство",
+          "noble horns, sweeping strings, frame drums, lute and hammered dulcimer"),
+        a(
+          "magic", "Зачарованный лес",
+          "celesta, harp harmonics, glockenspiel, breathy flutes, mysterious magic"),
+        a(
+          "heroic", "Поход героев",
+          "bold brass calls, urgent string ostinato, war drums, triumphant finale"),
+        a(
+          "overlord", "Overlord · тёмная империя",
+          "low strings, pipe organ, austere brass, ritual drums, oppressive regal power"),
+        a(
+          "skyrim", "Skyrim · северная сага",
+          "Nordic modal theme, low choir-like pads without words, horns, strings, large drums, mountain wilderness"
+        ),
+        a(
+          "cave", "Пещеры и руны",
+          "bone-flute timbre, primitive plucked strings, stone echoes, elemental mystery"),
+        a(
+          "dark-quest", "Проклятый поход",
+          "bass clarinet, low strings, distant brass, tense ritual pulse"),
+        a(
+          "tavern", "Таверна у тракта",
+          "lute, fiddle, hand drum, wooden flute, lively medieval dance"),
+      ]
+    ),
+    "Pirate": Definition(
+      base:
+        "instrumental age-of-sail adventure music, strong nautical identity, acoustic folk and cinematic colors, no singing",
+      archetypes: [
+        a(
+          "shanty", "Морская артель",
+          "concertina, fiddle, tin whistle, stomping deck rhythm, shanty-like call-and-response melody without voice"
+        ),
+        a(
+          "battle", "Бортовой залп",
+          "naval brass, urgent strings, low war drums, bold minor-mode battle theme"),
+        a(
+          "tavern", "Портовая таверна",
+          "fiddle jig, concertina, bodhran, wooden percussion, tipsy syncopation"),
+        a(
+          "storm", "Погоня сквозь шторм",
+          "fast string ostinato, thunderous toms, brass swells, rising sea-danger arc"),
+        a(
+          "ghost-ship", "Корабль-призрак",
+          "hurdy-gurdy drone, bowed bass, distant bells, dark modal sea legend"),
+        a(
+          "treasure", "Остров сокровищ",
+          "plucked strings, hand percussion, curious whistle melody, adventurous brass"),
+        a(
+          "coast", "Ветер архипелага", "fiddle, wooden flute, frame drum, bright coastal folk dance"
+        ),
+      ]
+    ),
+    "Rock": Definition(
+      base:
+        "instrumental live rock band, human dynamics, electric guitars, bass and acoustic drum kit",
+      archetypes: [
+        a("classic", "Открытая трасса", "crunchy rhythm guitars, melodic lead hook, roomy drums"),
+        a(
+          "alternative", "Альтернативная сцена",
+          "clean delayed verse guitar, overdriven chorus, melodic bass"),
+        a(
+          "anime-00s", "Аниме-рок нулевых",
+          "energetic alternative power-pop, jangly guitar, fuzzy chorus, restless coming-of-age momentum"
+        ),
+        a("garage", "Гаражный импульс", "raw compact riff, loose punchy drums, dry room sound"),
+        a("desert", "Пыльный усилитель", "low fuzzy guitar, hypnotic bass groove, wide toms"),
+      ]
+    ),
+    "Metal": Definition(
+      base:
+        "instrumental heavy metal, powerful bass, live drums, articulate distorted guitars, no vocals",
+      archetypes: [
+        a(
+          "heavy", "Стальной прилив", "down-tuned riffs, tight double kick, harmonized lead guitars"
+        ),
+        a(
+          "doom", "Каменный колокол",
+          "massive slow riffs, dark bass, spacious toms, ominous sustain"),
+        a(
+          "progressive", "Ломаная кузница",
+          "syncopated riffs, changing meter, precise drums, melodic climax"),
+        a(
+          "symphonic", "Железная корона",
+          "orchestral brass and strings around a heavy guitar foundation"),
+        a(
+          "melodic", "Северное лезвие", "tremolo melody, galloping rhythm, clear twin-guitar theme"),
+      ]
+    ),
+    "Thrash Metal": Definition(
+      base: "instrumental thrash metal, relentless live performance, sharp stops, no vocals",
+      archetypes: [
+        a("classic", "Ржавый вихрь", "fast palm-muted riffs, galloping bass, aggressive snare"),
+        a(
+          "technical", "Точный удар",
+          "angular chromatic riffs, alternate picking, precise meter shifts"),
+        a(
+          "mosh", "Круговая атака", "compact mosh riffs, abrupt half-time drops, rapid power chords"
+        ),
+        a(
+          "speed", "Без тормозов", "speed-metal momentum, double kick, short harmonized guitar solo"
+        ),
+        a(
+          "dark", "Чёрный реактор", "dissonant riff cells, low-register tremolo, tense drum breaks"),
+      ]
+    ),
+    "Cute": Definition(
+      base: "cute playful instrumental, bright harmony, small-scale textures, no vocals",
+      archetypes: [
+        a("storybook", "Плюшевая сказка", "toy piano, pizzicato strings, glockenspiel, tiny drums"),
+        a("kawaii", "Карамельный синт", "bubbly synthesizer bass, chiptune lead, handclaps"),
+        a("music-box", "Шкатулка", "music box, soft marimba, little bell accents"),
+        a("picnic", "Солнечный пикник", "ukulele, whistles as instruments, brushed percussion"),
+        a(
+          "tiny-quest", "Маленький квест",
+          "playful flutes, plucked strings, gentle adventure rhythm"),
+      ]
+    ),
+    "Chaos": Definition(
+      base:
+        "controlled experimental instrumental chaos, recurring motif, structured tension and release",
+      archetypes: [
+        a("polymeter", "Сломанный метр", "polymetric drums, dissonant brass bursts, angular bass"),
+        a(
+          "prepared", "Препарированный рояль",
+          "prepared piano, noisy percussion, sudden dynamic cuts"),
+        a(
+          "glitch", "Ошибка сигнала",
+          "sliced rhythms, unstable synth pitch, distorted digital texture"),
+        a(
+          "orchestral", "Оркестр на грани",
+          "clustered strings, brass smears, violent percussion contrasts"),
+        a("collage", "Радио из осколков", "genre fragments, tape edits, one unifying pulse"),
+      ]
+    ),
+    "Electronic": Definition(
+      base:
+        "instrumental electronic production, detailed stereo field, clean low end, evolving sound design",
+      archetypes: [
+        a("analog", "Аналоговый ток", "sequenced arpeggios, drum machine, deep synth bass"),
+        a("downtempo", "Медленный контур", "syncopated beat, glassy plucks, warm sub bass"),
+        a(
+          "melodic", "Световой импульс",
+          "layered synth theme, pulsing bass, clear build and release"),
+        a("idm", "Умная машина", "intricate micro-rhythm, crystalline tones, asymmetrical details"),
+        a(
+          "organic", "Живая электроника",
+          "processed hand percussion, wooden plucks, soft modular pulse"),
+      ]
+    ),
+    "Synthwave": Definition(
+      base:
+        "instrumental retro-futurist synthwave, analog synthesizers, cinematic night atmosphere",
+      archetypes: [
+        a(
+          "neon", "Неоновое шоссе", "poly-synth chords, gated snare, arpeggiated bass, bright lead"),
+        a("dark", "Ночной протокол", "heavy electronic drums, minor pads, tense driving sequencer"),
+        a("dream", "Пурпурный сон", "soft vintage pads, chorus guitar, glowing bass pulse"),
+        a("arcade", "Аркадная погоня", "punchy bass sequence, digital lead, compact action form"),
+        a(
+          "cinematic", "Город после дождя", "wide pads, slow lead melody, reflective neon ambience"),
+      ]
+    ),
+    "House": Definition(
+      base:
+        "instrumental house, four-on-the-floor kick, syncopated bass, polished club arrangement",
+      archetypes: [
+        a("deep", "Глубокий клуб", "warm sub bass, shuffled percussion, soulful electric piano"),
+        a("disco", "Зеркальный шар", "filtered rhythm guitar, elastic bass, bright strings"),
+        a("piano", "Клавиши на крыше", "piano stabs, crisp hats, uplifting chord loop"),
+        a("minimal", "Чистые четыре", "dry kick, tiny percussion shifts, restrained chord stab"),
+        a("organic", "Тёплый двор", "hand percussion, plucked motif, rounded bass groove"),
+      ]
+    ),
+    "Techno": Definition(
+      base:
+        "instrumental techno, repetitive four-on-the-floor drive, minimal harmony, evolving filters",
+      archetypes: [
+        a(
+          "hypnotic", "Гипноз тоннеля",
+          "rolling low end, metallic percussion, slowly shifting motif"),
+        a(
+          "detroit", "Машинный фанк",
+          "futuristic chord stabs, syncopated machine drums, spacious delay"),
+        a("dub", "Эхо бетона", "deep chord echoes, sub pressure, sparse percussion"),
+        a("driving", "Ночная магистраль", "firm kick, tom propulsion, austere two-note sequence"),
+        a(
+          "minimal", "Малый механизм",
+          "precise click percussion, dry bass pulse, microscopic change"),
+      ]
+    ),
+    "Hard Techno": Definition(
+      base:
+        "instrumental hard techno, fast warehouse pressure, forceful kick, controlled distortion",
+      archetypes: [
+        a("raw", "Сырая комната", "raw rumble, clipped percussion, stark minor stab"),
+        a(
+          "schranz", "Стальной шранц",
+          "hammering kick, looped industrial percussion, relentless momentum"),
+        a(
+          "groove", "Тяжёлый грув",
+          "rolling tom groove, syncopated low-end accents, short rave signal"),
+        a("trance", "Жёсткий транс", "driving bass, dark trance arpeggio, tense release"),
+        a(
+          "hi-tech", "Красная зона",
+          "rapid precision drums, futuristic alarm motif, dense energy arc"),
+      ]
+    ),
+    "Industrial Techno": Definition(
+      base: "instrumental industrial techno, mechanical space, dark club production, no vocals",
+      archetypes: [
+        a("factory", "Машинный цех", "metal impacts, piston rhythm, distorted rumbling bass"),
+        a(
+          "cyber-goth", "Кибер-готика",
+          "cold synth choir texture without voices, hard kick, ominous arpeggio"),
+        a("ritual", "Ритуал из стали", "tribal toms, found-metal percussion, low drone"),
+        a(
+          "noise", "Белый жар",
+          "controlled noise walls, power-electronic pulses, recurring kick anchor"),
+        a(
+          "broken", "Сломанный конвейер",
+          "off-grid machine hits, broken beat inserts, dark bass pressure"),
+      ]
+    ),
+    "Hardcore": Definition(
+      base:
+        "instrumental hardcore electronic music, very high energy, hard clipped kick, no vocals",
+      archetypes: [
+        a("gabber", "Габбер-удар", "distorted tail kick, rapid hats, brutal simple hook"),
+        a(
+          "industrial", "Индустриальное ядро", "metallic percussion, dark drone, punishing low end"),
+        a("melodic", "Свет сквозь шум", "hard kick under a clear minor-key rave melody"),
+        a("breakcore", "Ломаное ядро", "hyper-edited breaks, sub drops, controlled rhythmic chaos"),
+        a(
+          "warehouse", "Аварийный строб",
+          "siren-like synth as instrument, relentless pulse, abrupt stops"),
+      ]
+    ),
+    "Psytrance": Definition(
+      base: "instrumental psytrance, rolling offbeat bass, precise kick, psychedelic sound design",
+      archetypes: [
+        a("forest", "Ночной лес", "organic clicks, dark drones, twisting resonant sequence"),
+        a(
+          "goa", "Солнечная спираль", "layered acid melody, bright arpeggios, long evolving journey"
+        ),
+        a(
+          "progressive", "Ровная орбита",
+          "clean bass pulse, spacious effects, patient melodic reveal"),
+        a(
+          "dark", "Чёрный портал",
+          "dissonant synth creatures, dense percussion, ominous low atmosphere"),
+        a(
+          "hi-tech", "Квантовый разгон",
+          "rapid digital motifs, micro-edits, precise high-speed build"),
+      ]
+    ),
+    "Breakbeat": Definition(
+      base: "instrumental breakbeat, syncopated broken drums, strong bass movement, no vocals",
+      archetypes: [
+        a("big-beat", "Большой бит", "chunky sampled drums, distorted bass riff, swaggering hook"),
+        a("uk-breaks", "Ночной брейкс", "tight shuffled breaks, sub bass, futuristic chord stab"),
+        a("electro", "Электроразряд", "robotic syncopation, analog bass, sharp snare accents"),
+        a("rave", "Ломаный рейв", "chopped break, rave piano fragments, elastic bass"),
+        a(
+          "cinematic", "Погоня по крышам",
+          "layered break drums, orchestral tension pulse, wide climax"),
+      ]
+    ),
+    "Drum and Bass": Definition(
+      base:
+        "instrumental drum and bass, fast chopped breakbeats, precise sub bass, powerful clean mix",
+      archetypes: [
+        a("liquid", "Жидкий свет", "warm bass, jazz-inflected electric piano, airy pads"),
+        a("neuro", "Нейронный бас", "modulated Reese bass, intricate edits, tense ambience"),
+        a("jungle", "Городские джунгли", "raw amen-style break language, deep sub, dub echoes"),
+        a("dancefloor", "Большой разгон", "bright hook, firm drop, energetic rolling drums"),
+        a(
+          "atmospheric", "Высотный поток",
+          "wide cinematic pads, detailed breaks, emotional progression"),
+      ]
+    ),
+    "Cyberpunk": Definition(
+      base:
+        "instrumental dark-future city radio, gritty believable production, technology and street energy, no copyrighted samples",
+      archetypes: [
+        a(
+          "industrial-rock", "Радио индустриального рока",
+          "distorted guitar machines, electronic drums, hostile bass riff"),
+        a(
+          "dark-club", "Радио тёмного клуба",
+          "hard electro pulse, cold synths, industrial percussion"),
+        a(
+          "future-hop", "Радио улиц будущего", "heavy 808, broken trap drums, granular city texture"
+        ),
+        a(
+          "neon-pop", "Радио неоновой ночи",
+          "glossy synth hook, bittersweet chords, punchy electronic beat"),
+        a(
+          "combat", "Радио боевого сектора",
+          "drum-and-bass propulsion, metal accents, alarm-like motif"),
+        a(
+          "dark-ambient", "Радио пустошей",
+          "dark ambient drones, distant machinery, sparse sub pulses"),
+        a(
+          "future-jazz", "Радио хромового джаза",
+          "muted electric horn timbre, broken drums, synthetic upright bass"),
+        a(
+          "chrome-metal", "Радио хром-метала",
+          "down-tuned guitar, electronic kick layers, mechanical riff cycle"),
+      ]
+    ),
+    "Hip-hop": Definition(
+      base:
+        "instrumental hip-hop, strong pocket, no rap and no voice, original unsampled performance",
+      archetypes: [
+        a("boom-bap", "Виниловый шаг", "soulful chords, swung kick and snare, warm bassline"),
+        a(
+          "jazz", "Ночной квартал",
+          "upright bass, Rhodes piano, dusty breakbeat, horn-like synth flecks"),
+        a("trap", "Глубокий 808", "crisp hi-hat patterns, sparse minor keys, cinematic drums"),
+        a("abstract", "Бит из теней", "uneven sample-like textures, low pulse, mysterious motif"),
+        a("funk", "Карманный рэп-бит", "syncopated bass, clavinet, tight dry drums"),
+      ]
+    ),
+    "Funk": Definition(
+      base:
+        "instrumental funk, syncopated bass, tight live drum pocket, playful call-and-response instruments",
+      archetypes: [
+        a("classic", "Медный шаг", "muted rhythm guitar, clavinet, sharp brass punches"),
+        a("deep", "Глубокий карман", "dry drums, wah guitar, organ stabs, melodic bass fills"),
+        a("electro", "Электрофанк", "slap bass, analog synth lead, handclaps"),
+        a(
+          "phantom", "Фантомный фанк",
+          "ghostly game-world jazz fusion, electric piano, nimble bass, playful spectral synths"),
+        a("city-pop", "Городской блеск", "clean guitar, polished bass, bright jazz-pop chords"),
+        a(
+          "jrpg", "Приключенческий фьюжн",
+          "JRPG-like harmonic turns, slap bass, electric piano, animated lead synth"),
+      ]
+    ),
+    "Jazz": Definition(
+      base: "instrumental jazz, natural ensemble interaction, acoustic detail, no vocals",
+      archetypes: [
+        a("trio", "Ночной трио", "swinging ride, upright walking bass, piano improvisation"),
+        a("cool", "Синий час", "brushed drums, muted trumpet, spacious piano voicings"),
+        a("modal", "Открытый лад", "tenor saxophone, quartal piano, extended modal development"),
+        a(
+          "fusion", "Игровой джаз-фьюжн",
+          "electric piano, melodic electric bass, crisp drums, JRPG-like harmonic turns"),
+        a(
+          "cabaret", "Полуночное кабаре",
+          "upright piano, clarinet, brushed kit, theatrical minor harmony"),
+      ]
+    ),
+    "Classical": Definition(
+      base: "instrumental classical music, realistic acoustic performance, clear voice leading",
+      archetypes: [
+        a(
+          "baroque", "Барочная зала",
+          "contrapuntal strings, harpsichord continuo, elegant articulation"),
+        a("quartet", "Камерный разговор", "string quartet, balanced thematic development"),
+        a("romantic", "Романтическая сцена", "lyrical strings, woodwind color, broad dynamics"),
+        a("piano", "Один рояль", "concert grand piano, expressive rubato, coherent recital form"),
+        a(
+          "modern", "Современная палата",
+          "transparent dissonance, precise chamber textures, unusual meter"),
+      ]
+    ),
+    "Post-rock": Definition(
+      base: "instrumental post-rock, patient motif development, expansive live band dynamics",
+      archetypes: [
+        a(
+          "crescendo", "Долгий подъём",
+          "clean delayed guitars, spacious drums, wide distortion finale"),
+        a("atmospheric", "Море антенн", "tremolo layers, bowed textures, slow tom pattern"),
+        a("minimal", "Один маяк", "repeating guitar figure, warm bass, restrained kit"),
+        a("heavy", "Свет после бури", "low guitar wall, huge drums, cathartic melodic release"),
+        a(
+          "electronic", "Сигналы вдали", "post-rock guitars with subtle sequencer and granular air"),
+      ]
+    ),
+    "Cinematic": Definition(
+      base:
+        "instrumental cinematic score, clear narrative arc, realistic orchestration, no trailer voice",
+      archetypes: [
+        a("adventure", "Большая дорога", "string theme, noble brass, orchestral percussion"),
+        a("intimate", "Тихий кадр", "felt piano, chamber strings, subtle pulse"),
+        a("epic", "Перед битвой", "low ostinato, broad horns, large drums, triumphant resolution"),
+        a(
+          "thriller", "Часы в темноте", "ticking percussion, tense strings, low electronic pressure"
+        ),
+        a(
+          "wonder", "Неизвестный мир",
+          "woodwind colors, luminous strings, gradual sense of discovery"),
+      ]
+    ),
   ]
 
   private static func mix(_ input: UInt64) -> UInt64 {

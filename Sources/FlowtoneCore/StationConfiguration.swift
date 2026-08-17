@@ -38,19 +38,22 @@ public struct StationConfiguration: Codable, Equatable, Sendable {
   public var tempoBPM: Int
   public var mood: StationMood
   public var vibe: String?
+  public var genrePresetIDs: [String: String]
 
   public init(
     genres: [String],
     energy: EnergyLevel,
     tempoBPM: Int,
     mood: StationMood,
-    vibe: String? = nil
+    vibe: String? = nil,
+    genrePresetIDs: [String: String] = [:]
   ) {
     self.genres = genres
     self.energy = energy
     self.tempoBPM = tempoBPM
     self.mood = mood
     self.vibe = vibe
+    self.genrePresetIDs = genrePresetIDs
   }
 
   public func validated() throws -> StationConfiguration {
@@ -67,14 +70,50 @@ public struct StationConfiguration: Codable, Equatable, Sendable {
     }
 
     let cleanVibe = vibe.map(Self.cleanText).flatMap { $0.isEmpty ? nil : $0 }
+    let cleanPresetIDs: [String: String] = Dictionary(
+      uniqueKeysWithValues: genrePresetIDs.compactMap { genre, presetID in
+        let cleanGenre = Self.cleanText(genre)
+        let cleanPresetID = Self.cleanText(presetID)
+        guard cleanGenres.contains(cleanGenre), !cleanPresetID.isEmpty else { return nil }
+        return (cleanGenre, cleanPresetID)
+      }
+    )
 
     return StationConfiguration(
       genres: cleanGenres,
       energy: energy,
       tempoBPM: tempoBPM,
       mood: mood,
-      vibe: cleanVibe
+      vibe: cleanVibe,
+      genrePresetIDs: cleanPresetIDs
     )
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case genres, energy, tempoBPM, mood, vibe, genrePresetIDs
+  }
+
+  public init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    genres = try container.decode([String].self, forKey: .genres)
+    energy = try container.decode(EnergyLevel.self, forKey: .energy)
+    tempoBPM = try container.decode(Int.self, forKey: .tempoBPM)
+    mood = try container.decode(StationMood.self, forKey: .mood)
+    vibe = try container.decodeIfPresent(String.self, forKey: .vibe)
+    genrePresetIDs =
+      try container.decodeIfPresent([String: String].self, forKey: .genrePresetIDs) ?? [:]
+  }
+
+  public func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(genres, forKey: .genres)
+    try container.encode(energy, forKey: .energy)
+    try container.encode(tempoBPM, forKey: .tempoBPM)
+    try container.encode(mood, forKey: .mood)
+    try container.encodeIfPresent(vibe, forKey: .vibe)
+    if !genrePresetIDs.isEmpty {
+      try container.encode(genrePresetIDs, forKey: .genrePresetIDs)
+    }
   }
 
   private static func cleanText(_ value: String) -> String {

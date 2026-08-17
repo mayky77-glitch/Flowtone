@@ -39,6 +39,12 @@ struct FlowtoneRootView: View {
     .sheet(isPresented: $model.isLibraryPresented) {
       TrackLibraryView(model: model)
     }
+    .alert("Хранилище Flowtone заполнено", isPresented: $model.isStorageLimitAlertPresented) {
+      Button("Открыть архив") { model.showLibrary(filter: .all) }
+      Button("Понятно", role: .cancel) {}
+    } message: {
+      Text(model.storageLimitAlertMessage)
+    }
     .onReceive(playbackPulse) { _ in
       model.updatePlayback()
     }
@@ -98,6 +104,44 @@ private struct StationControls: View {
               }
             }
           }
+
+          Toggle("Микс 2–5 жанров", isOn: $model.mixGenresEnabled)
+            .toggleStyle(.switch)
+            .tint(FlowtonePalette.signal)
+            .disabled(!model.canMixGenres)
+
+          Text(
+            model.canMixGenres
+              ? "Каждая новая запись случайно соединяет от двух до пяти активных жанров"
+              : "Для микса выберите минимум два жанра"
+          )
+          .font(.system(size: 10, design: .rounded))
+          .foregroundStyle(FlowtonePalette.muted)
+        }
+
+        controlSection("Пресет следующего трека") {
+          Picker("Жанр", selection: $model.presetEditingGenre) {
+            ForEach(model.presetGenreChoices, id: \.self) { genre in
+              Text(model.genreDisplayName(genre)).tag(genre)
+            }
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
+          .frame(maxWidth: .infinity, alignment: .leading)
+
+          Picker("Пресет", selection: presetSelection) {
+            Text("Авто · случайный пресет").tag("")
+            ForEach(model.presetsForEditingGenre) { preset in
+              Text(preset.title).tag(preset.id)
+            }
+          }
+          .labelsHidden()
+          .pickerStyle(.menu)
+          .frame(maxWidth: .infinity, alignment: .leading)
+
+          Text("Выбор хранится отдельно для каждого жанра")
+            .font(.system(size: 10, design: .rounded))
+            .foregroundStyle(FlowtonePalette.muted)
         }
 
         controlSection("Энергия") {
@@ -155,6 +199,13 @@ private struct StationControls: View {
         endPoint: .bottom
       )
     }
+  }
+
+  private var presetSelection: Binding<String> {
+    Binding(
+      get: { model.selectedPresetID(for: model.presetEditingGenre) },
+      set: { model.selectPreset($0, for: model.presetEditingGenre) }
+    )
   }
 
   @ViewBuilder
@@ -697,10 +748,25 @@ private struct StableAudioSetupGate: View {
   }
 }
 
+private enum TrackLibrarySection: String, CaseIterable, Identifiable {
+  case tracks
+  case statistics
+
+  var id: Self { self }
+
+  var title: String {
+    switch self {
+    case .tracks: "Треки"
+    case .statistics: "Статистика"
+    }
+  }
+}
+
 private struct TrackLibraryView: View {
   @ObservedObject var model: FlowtoneAppModel
   @Environment(\.dismiss) private var dismiss
   @State private var confirmsCleanup = false
+  @State private var section: TrackLibrarySection = .tracks
 
   private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
@@ -736,126 +802,27 @@ private struct TrackLibraryView: View {
       }
       .padding(28)
 
-      Picker("Раздел коллекции", selection: $model.libraryFilter) {
-        ForEach(TrackLibraryFilter.allCases) { filter in
-          Text(filter.title).tag(filter)
+      Picker("Раздел архива", selection: $section) {
+        ForEach(TrackLibrarySection.allCases) { item in
+          Text(item.title).tag(item)
         }
       }
       .labelsHidden()
       .pickerStyle(.segmented)
       .tint(FlowtonePalette.signal)
+      .frame(maxWidth: 330)
       .padding(.horizontal, 28)
       .padding(.bottom, 16)
 
-      HStack(spacing: 12) {
-        libraryMetric(
-          title: "ВСЕГО",
-          value: "\(model.libraryStatistics.trackCount) треков",
-          detail: model.formatBytes(model.libraryStatistics.byteSize)
-        )
-        libraryMetric(
-          title: "ЛЮБИМЫЕ",
-          value: "\(model.libraryStatistics.likedTrackCount)",
-          detail: "защищены от очистки"
-        )
-
-        VStack(alignment: .leading, spacing: 7) {
-          Text("ЛИМИТ ХРАНИЛИЩА")
-            .font(.system(size: 9, weight: .semibold, design: .monospaced))
-            .tracking(1)
-            .foregroundStyle(FlowtonePalette.muted)
-          Picker("", selection: $model.storageLimitGiB) {
-            ForEach([1, 5, 10, 20, 50], id: \.self) { value in
-              Text("\(value) ГБ").tag(value)
-            }
-          }
-          .labelsHidden()
-          .pickerStyle(.menu)
-          .onChange(of: model.storageLimitGiB) { _, _ in model.applyStorageLimit() }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(14)
-        .background(FlowtonePalette.panel, in: RoundedRectangle(cornerRadius: 12))
-        .overlay { RoundedRectangle(cornerRadius: 12).stroke(FlowtonePalette.line) }
-      }
-      .padding(.horizontal, 28)
-
-      if !model.libraryStatistics.genres.isEmpty {
-        VStack(alignment: .leading, spacing: 10) {
-          Text("ПО ЖАНРАМ")
-            .font(.system(size: 9, weight: .semibold, design: .monospaced))
-            .tracking(1)
-            .foregroundStyle(FlowtonePalette.muted)
-
-          LazyVGrid(columns: columns, spacing: 8) {
-            ForEach(model.libraryStatistics.genres, id: \.genre) { item in
-              HStack {
-                Text(model.genreDisplayName(item.genre))
-                Spacer()
-                Text("\(item.trackCount) · \(model.formatBytes(item.byteSize))")
-                  .foregroundStyle(FlowtonePalette.muted)
-              }
-              .font(.system(size: 11, design: .rounded))
-              .foregroundStyle(FlowtonePalette.ink)
-              .padding(.horizontal, 12)
-              .frame(height: 34)
-              .background(
-                FlowtonePalette.panel.opacity(0.72), in: RoundedRectangle(cornerRadius: 9))
-            }
-          }
-        }
-        .padding(.horizontal, 28)
-        .padding(.top, 18)
-      }
-
-      Divider()
-        .overlay(FlowtonePalette.line)
-        .padding(.top, 18)
-
-      if visibleTracks.isEmpty {
-        VStack(spacing: 9) {
-          Image(systemName: model.libraryFilter == .liked ? "heart" : "music.note")
-            .font(.system(size: 24))
-            .foregroundStyle(FlowtonePalette.signal)
-          Text(
-            model.libraryFilter == .liked
-              ? "Пока нет любимых записей" : "Здесь появятся записи станции"
-          )
-          .font(.system(size: 15, weight: .medium, design: .serif))
-          .foregroundStyle(FlowtonePalette.ink)
-          Text(
-            model.libraryFilter == .liked
-              ? "Нажмите сердце у трека, который хотите сохранить"
-              : "Создайте первую запись на главном экране"
-          )
-          .font(.system(size: 11, design: .rounded))
-          .foregroundStyle(FlowtonePalette.muted)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-      } else {
-        ScrollView {
-          LazyVStack(spacing: 1) {
-            ForEach(visibleTracks) { track in
-              trackRow(track)
-            }
-          }
-          .padding(.vertical, 8)
+      Group {
+        switch section {
+        case .tracks:
+          tracksSection
+        case .statistics:
+          statisticsSection
         }
       }
-
-      HStack {
-        Text("Лайкнутые записи не удаляются автоматически")
-          .font(.system(size: 10, design: .rounded))
-          .foregroundStyle(FlowtonePalette.muted)
-        Spacer()
-        Button("Удалить всё без лайка") { confirmsCleanup = true }
-          .buttonStyle(.plain)
-          .font(.system(size: 11, weight: .semibold, design: .rounded))
-          .foregroundStyle(FlowtonePalette.signal)
-          .disabled(model.libraryStatistics.trackCount == model.libraryStatistics.likedTrackCount)
-      }
-      .padding(20)
-      .background(FlowtonePalette.sidebar)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .frame(minWidth: 700, minHeight: 650)
     .background(FlowtonePalette.canvas)
@@ -871,6 +838,160 @@ private struct TrackLibraryView: View {
       Text(
         "Текущая и подготовленные записи доиграют. Остальные файлы без лайка будут удалены с Mac.")
     }
+  }
+
+  private var tracksSection: some View {
+    VStack(spacing: 0) {
+      HStack(spacing: 14) {
+        Picker("Фильтр записей", selection: $model.libraryFilter) {
+          ForEach(TrackLibraryFilter.allCases) { filter in
+            Text(filter.title).tag(filter)
+          }
+        }
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .tint(FlowtonePalette.signal)
+        .frame(width: 260)
+
+        Text(
+          model.libraryFilter == .liked
+            ? "\(visibleTracks.count) любимых"
+            : model.librarySummaryText
+        )
+        .font(.system(size: 11, weight: .medium, design: .rounded))
+        .foregroundStyle(FlowtonePalette.muted)
+
+        Spacer()
+      }
+      .padding(.horizontal, 28)
+      .padding(.bottom, 13)
+
+      Divider().overlay(FlowtonePalette.line)
+
+      if visibleTracks.isEmpty {
+        emptyTracksState
+      } else {
+        ScrollView {
+          LazyVStack(spacing: 1) {
+            ForEach(visibleTracks) { track in
+              trackRow(track)
+            }
+          }
+          .padding(.vertical, 8)
+        }
+      }
+
+      HStack {
+        Label("Любимые защищены от очистки", systemImage: "heart.fill")
+          .font(.system(size: 10, design: .rounded))
+          .foregroundStyle(FlowtonePalette.muted)
+        Spacer()
+        Button("Удалить всё без лайка") { confirmsCleanup = true }
+          .buttonStyle(.plain)
+          .font(.system(size: 11, weight: .semibold, design: .rounded))
+          .foregroundStyle(FlowtonePalette.signal)
+          .disabled(model.libraryStatistics.trackCount == model.libraryStatistics.likedTrackCount)
+      }
+      .padding(.horizontal, 28)
+      .frame(height: 54)
+      .background(FlowtonePalette.sidebar)
+    }
+  }
+
+  private var emptyTracksState: some View {
+    VStack(spacing: 9) {
+      Image(systemName: model.libraryFilter == .liked ? "heart" : "music.note")
+        .font(.system(size: 24))
+        .foregroundStyle(FlowtonePalette.signal)
+      Text(
+        model.libraryFilter == .liked
+          ? "Пока нет любимых записей" : "Здесь появятся записи станции"
+      )
+      .font(.system(size: 15, weight: .medium, design: .serif))
+      .foregroundStyle(FlowtonePalette.ink)
+      Text(
+        model.libraryFilter == .liked
+          ? "Нажмите сердце у трека, который хотите сохранить"
+          : "Создайте первую запись на главном экране"
+      )
+      .font(.system(size: 11, design: .rounded))
+      .foregroundStyle(FlowtonePalette.muted)
+    }
+    .frame(maxWidth: .infinity, maxHeight: .infinity)
+  }
+
+  private var statisticsSection: some View {
+    ScrollView {
+      VStack(alignment: .leading, spacing: 20) {
+        HStack(spacing: 12) {
+          libraryMetric(
+            title: "ВСЕГО",
+            value: "\(model.libraryStatistics.trackCount) треков",
+            detail: model.formatBytes(model.libraryStatistics.byteSize)
+          )
+          libraryMetric(
+            title: "ЛЮБИМЫЕ",
+            value: "\(model.libraryStatistics.likedTrackCount)",
+            detail: "защищены от очистки"
+          )
+          storageLimitMetric
+        }
+
+        if !model.libraryStatistics.genres.isEmpty {
+          VStack(alignment: .leading, spacing: 10) {
+            Text("ПО ЖАНРАМ")
+              .font(.system(size: 9, weight: .semibold, design: .monospaced))
+              .tracking(1)
+              .foregroundStyle(FlowtonePalette.muted)
+
+            LazyVGrid(columns: columns, spacing: 8) {
+              ForEach(model.libraryStatistics.genres, id: \.genre) { item in
+                HStack {
+                  Text(model.genreDisplayName(item.genre))
+                  Spacer()
+                  Text("\(item.trackCount) · \(model.formatBytes(item.byteSize))")
+                    .foregroundStyle(FlowtonePalette.muted)
+                }
+                .font(.system(size: 11, design: .rounded))
+                .foregroundStyle(FlowtonePalette.ink)
+                .padding(.horizontal, 12)
+                .frame(height: 38)
+                .background(
+                  FlowtonePalette.panel.opacity(0.72), in: RoundedRectangle(cornerRadius: 9))
+              }
+            }
+          }
+        }
+      }
+      .padding(.horizontal, 28)
+      .padding(.bottom, 28)
+    }
+  }
+
+  private var storageLimitMetric: some View {
+    VStack(alignment: .leading, spacing: 7) {
+      Text("ЛИМИТ ХРАНИЛИЩА")
+        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+        .tracking(1)
+        .foregroundStyle(FlowtonePalette.muted)
+      Picker("", selection: $model.storageLimitGiB) {
+        ForEach([1, 5, 10, 20, 50], id: \.self) { value in
+          Text("\(value) ГБ").tag(value)
+        }
+      }
+      .labelsHidden()
+      .pickerStyle(.menu)
+      .onChange(of: model.storageLimitGiB) { _, _ in model.applyStorageLimit() }
+      if model.isStoragePaused {
+        Label("Новые записи приостановлены", systemImage: "exclamationmark.circle.fill")
+          .font(.system(size: 9, weight: .semibold, design: .rounded))
+          .foregroundStyle(FlowtonePalette.signal)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(14)
+    .background(FlowtonePalette.panel, in: RoundedRectangle(cornerRadius: 12))
+    .overlay { RoundedRectangle(cornerRadius: 12).stroke(FlowtonePalette.line) }
   }
 
   private func libraryMetric(title: String, value: String, detail: String) -> some View {

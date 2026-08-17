@@ -7,7 +7,9 @@ public struct PromptComposer: Sendable {
     let configuration = try configuration.validated()
     let catalog = GenrePromptCatalog()
     let genreProfiles = configuration.genres.enumerated().map { index, genre in
-      "\(genre): \(catalog.profile(for: genre, seed: seed &+ UInt64(index)))"
+      let presetID = configuration.genrePresetIDs[genre]
+      return
+        "\(genre): \(catalog.profile(for: genre, seed: seed &+ UInt64(index), presetID: presetID))"
     }
     var parts = [
       configuration.genres.joined(separator: " blended with "),
@@ -18,6 +20,12 @@ public struct PromptComposer: Sendable {
       "instrumental background music for deep work, strictly no lyrics and no voice",
       "coherent arrangement, smooth development, no abrupt ending",
     ]
+
+    if configuration.genres.count > 1 {
+      parts.append(
+        "intentional fusion: the first genre leads rhythm and form, the remaining genres add compatible instrumentation and color"
+      )
+    }
 
     if let vibe = configuration.vibe {
       parts.append(vibe)

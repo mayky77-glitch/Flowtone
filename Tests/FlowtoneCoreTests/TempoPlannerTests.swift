@@ -4,20 +4,16 @@ import Testing
 
 @Suite("TempoPlanner")
 struct TempoPlannerTests {
-  @Test(
-    "Genre tempo is deterministic and valid",
-    arguments: [
-      "Ambient", "Lo-fi", "Light Rave", "Fantasy", "Rock", "Metal", "Thrash Metal",
-      "Cute", "Chaos", "Electronic", "Synthwave", "House", "Techno", "Drum and Bass",
-      "Hip-hop", "Funk", "Jazz", "Classical", "Post-rock", "Cinematic",
-    ])
-  func deterministicAndValid(genre: String) {
+  @Test("Genre tempo is deterministic and valid")
+  func deterministicAndValid() {
     let planner = TempoPlanner()
-    let first = planner.tempo(for: genre, energy: .balanced, seed: 42)
-    let second = planner.tempo(for: genre, energy: .balanced, seed: 42)
+    for genre in GenrePromptCatalog.supportedGenres {
+      let first = planner.tempo(for: genre, energy: .balanced, seed: 42)
+      let second = planner.tempo(for: genre, energy: .balanced, seed: 42)
 
-    #expect(first == second)
-    #expect((40...220).contains(first))
+      #expect(first == second)
+      #expect((40...220).contains(first))
+    }
   }
 
   @Test("Dance and beat genres stay inside recognized ranges")

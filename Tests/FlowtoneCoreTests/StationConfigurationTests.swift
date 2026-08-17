@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 
 @testable import FlowtoneCore
@@ -9,13 +10,15 @@ import Testing
       energy: .calm,
       tempoBPM: 82,
       mood: .focused,
-      vibe: " rain\n outside "
+      vibe: " rain\n outside ",
+      genrePresetIDs: [" Ambient ": " warm-pads-steady ", "Rock": "classic-steady"]
     )
 
     let validated = try input.validated()
 
     #expect(validated.genres == ["Ambient", "Lo-fi"])
     #expect(validated.vibe == "rain outside")
+    #expect(validated.genrePresetIDs == ["Ambient": "warm-pads-steady"])
   }
 
   @Test func validationRejectsMissingGenre() {
@@ -51,5 +54,33 @@ import Testing
     #expect(prompt.contains("instrumental background music for deep work"))
     #expect(prompt.contains("late-night rain"))
     #expect(composer.negativePrompt.contains("vocals"))
+  }
+
+  @Test func promptComposerUsesPresetAndDescribesIntentionalFusion() throws {
+    let catalog = GenrePromptCatalog()
+    let preset = try #require(catalog.presets(for: "Pirate").first)
+    let input = StationConfiguration(
+      genres: ["Pirate", "Fantasy"],
+      energy: .driving,
+      tempoBPM: 120,
+      mood: .uplifting,
+      genrePresetIDs: ["Pirate": preset.id]
+    )
+
+    let prompt = try PromptComposer().compose(from: input, seed: 17)
+
+    #expect(prompt.contains(preset.productionPrompt))
+    #expect(prompt.contains("intentional fusion"))
+  }
+
+  @Test func decoderAcceptsOlderConfigurationWithoutPresetMap() throws {
+    let json =
+      #"{"genres":["Ambient"],"energy":"calm","tempoBPM":70,"mood":"focused"}"#
+    let decoded = try JSONDecoder().decode(
+      StationConfiguration.self,
+      from: try #require(json.data(using: .utf8))
+    )
+
+    #expect(decoded.genrePresetIDs.isEmpty)
   }
 }

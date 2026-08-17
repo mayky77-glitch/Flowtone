@@ -4,7 +4,7 @@ import Testing
 
 @Suite("TrackTitleGenerator")
 struct TrackTitleGeneratorTests {
-  @Test("Title is deterministic, short, and does not copy a raw vibe fragment")
+  @Test("Title is deterministic, semantic, and limited to ten words")
   func deterministicVibeTitle() {
     let configuration = StationConfiguration(
       genres: ["Light Rave"],
@@ -19,8 +19,11 @@ struct TrackTitleGeneratorTests {
 
     #expect(first == second)
     #expect(first.contains("ночной город") == false)
-    #expect(first.contains("·"))
-    #expect(first.count <= 44)
+    #expect(
+      first.lowercased().contains("дожд") || first.lowercased().contains("мокрых улиц")
+    )
+    #expect(first.contains("·") == false)
+    #expect(first.split(whereSeparator: \.isWhitespace).count <= 10)
   }
 
   @Test("Track library assigns a generated title during import")
@@ -54,7 +57,11 @@ struct TrackTitleGeneratorTests {
 
     #expect(track.title.contains("зачарованный лес") == false)
     #expect(track.title.isEmpty == false)
-    #expect(track.title.count <= 44)
+    #expect(
+      track.title.lowercased().contains("магии")
+        || track.title.lowercased().contains("заклинаний")
+    )
+    #expect(track.title.split(whereSeparator: \.isWhitespace).count <= 10)
   }
 
   @Test("Old title ending with a cut-off preposition is repaired")
@@ -65,7 +72,29 @@ struct TrackTitleGeneratorTests {
       seed: 9
     )
 
-    #expect(title.count <= 44)
+    #expect(title.split(whereSeparator: \.isWhitespace).count <= 10)
     #expect(title.hasSuffix(" по") == false)
+  }
+
+  @Test("Generated and migrated titles avoid repeated content words")
+  func avoidsRepeatedContentWords() {
+    let configuration = StationConfiguration(
+      genres: ["Ambient"],
+      energy: .calm,
+      tempoBPM: 72,
+      mood: .focused
+    )
+
+    for seed in 0..<30 {
+      let title = TrackTitleGenerator().title(for: configuration, seed: UInt64(seed))
+      #expect(title.components(separatedBy: "горизонт").count <= 2)
+    }
+
+    let repaired = TrackTitleGenerator.normalizedExistingTitle(
+      "Тихий горизонт в тихом движении к ясному горизонту",
+      genres: ["Ambient"],
+      seed: 12
+    )
+    #expect(repaired != "Тихий горизонт в тихом движении к ясному горизонту")
   }
 }

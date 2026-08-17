@@ -9,6 +9,7 @@ public struct TrackRecord: Codable, Equatable, Identifiable, Sendable {
   public var lastPlayedAt: Date?
   public var playCount: Int
   public var isLiked: Bool
+  public let isTransient: Bool
   public let durationSeconds: Int
   public let byteSize: Int64
   public let engineID: String
@@ -23,6 +24,7 @@ public struct TrackRecord: Codable, Equatable, Identifiable, Sendable {
     lastPlayedAt: Date? = nil,
     playCount: Int = 0,
     isLiked: Bool = false,
+    isTransient: Bool = false,
     durationSeconds: Int,
     byteSize: Int64,
     engineID: String,
@@ -36,6 +38,7 @@ public struct TrackRecord: Codable, Equatable, Identifiable, Sendable {
     self.lastPlayedAt = lastPlayedAt
     self.playCount = playCount
     self.isLiked = isLiked
+    self.isTransient = isTransient
     self.durationSeconds = durationSeconds
     self.byteSize = byteSize
     self.engineID = engineID
@@ -43,7 +46,7 @@ public struct TrackRecord: Codable, Equatable, Identifiable, Sendable {
   }
 
   private enum CodingKeys: String, CodingKey {
-    case id, title, fileName, genres, createdAt, lastPlayedAt, playCount, isLiked
+    case id, title, fileName, genres, createdAt, lastPlayedAt, playCount, isLiked, isTransient
     case durationSeconds, byteSize, engineID, seed
   }
 
@@ -56,6 +59,7 @@ public struct TrackRecord: Codable, Equatable, Identifiable, Sendable {
     lastPlayedAt = try container.decodeIfPresent(Date.self, forKey: .lastPlayedAt)
     playCount = try container.decode(Int.self, forKey: .playCount)
     isLiked = try container.decode(Bool.self, forKey: .isLiked)
+    isTransient = try container.decodeIfPresent(Bool.self, forKey: .isTransient) ?? false
     durationSeconds = try container.decode(Int.self, forKey: .durationSeconds)
     byteSize = try container.decode(Int64.self, forKey: .byteSize)
     engineID = try container.decode(String.self, forKey: .engineID)
@@ -179,7 +183,10 @@ public actor TrackLibrary {
     tracksByID = Dictionary(uniqueKeysWithValues: existingTracks.map { ($0.id, $0) })
     isLoaded = true
 
-    if existingTracks.count != index.tracks.count {
+    let canonicalData = try Self.encoder.encode(
+      TrackLibraryIndex(version: 1, tracks: sortedTracks())
+    )
+    if existingTracks.count != index.tracks.count || canonicalData != data {
       try persist()
     }
 
@@ -189,6 +196,24 @@ public actor TrackLibrary {
   public func allTracks() throws -> [TrackRecord] {
     try ensureLoaded()
     return sortedTracks()
+  }
+
+  @discardableResult
+  public func removeOrphanedIncomingAudio() throws -> Int {
+    try ensureLoaded()
+    let fileURLs = try fileManager.contentsOfDirectory(
+      at: incomingDirectory,
+      includingPropertiesForKeys: [.isRegularFileKey],
+      options: [.skipsHiddenFiles]
+    )
+    var removedCount = 0
+    for fileURL in fileURLs {
+      let isRegularFile = try fileURL.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile
+      guard isRegularFile == true else { continue }
+      try fileManager.removeItem(at: fileURL)
+      removedCount += 1
+    }
+    return removedCount
   }
 
   public func statistics() throws -> LibraryStatistics {
@@ -213,6 +238,7 @@ public actor TrackLibrary {
   public func importGeneratedAudio(
     _ audio: GeneratedAudio,
     configuration: StationConfiguration,
+    isTransient: Bool = false,
     createdAt: Date = Date()
   ) throws -> TrackRecord {
     try ensureLoaded()
@@ -232,6 +258,7 @@ public actor TrackLibrary {
       fileName: fileName,
       genres: configuration.genres,
       createdAt: createdAt,
+      isTransient: isTransient,
       durationSeconds: audio.durationSeconds,
       byteSize: audio.byteSize,
       engineID: audio.engineID,
@@ -314,6 +341,16 @@ public actor TrackLibrary {
     try ensureLoaded()
     let candidates = tracksByID.values.filter {
       !$0.isLiked && !protectedTrackIDs.contains($0.id)
+    }
+    return try remove(candidates, byteLimit: nil)
+  }
+
+  public func removeUnlikedTransient(protectedTrackIDs: Set<UUID> = []) throws
+    -> CleanupReport
+  {
+    try ensureLoaded()
+    let candidates = tracksByID.values.filter {
+      $0.isTransient && !$0.isLiked && !protectedTrackIDs.contains($0.id)
     }
     return try remove(candidates, byteLimit: nil)
   }
@@ -420,7 +457,7 @@ public actor TrackLibrary {
 
   private static let encoder: JSONEncoder = {
     let encoder = JSONEncoder()
-    encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+    encoder.outputFormatting = [.sortedKeys]
     return encoder
   }()
 

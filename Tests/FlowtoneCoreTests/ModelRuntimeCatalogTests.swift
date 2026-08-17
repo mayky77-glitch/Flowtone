@@ -68,7 +68,7 @@ import Testing
     #expect(
       catalog.availability(for: .quality)
         == .unsupported(
-          reason: "Качественный tier недоступен: адаптер ACE-Step ещё не поддерживается."
+          reason: "Режим качества недоступен: адаптер ACE-Step ещё не подключён."
         ))
   }
 

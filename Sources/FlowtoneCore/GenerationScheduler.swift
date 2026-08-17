@@ -16,6 +16,7 @@ public actor GenerationScheduler {
   private var consecutiveFailures = 0
   private var activeGenerationTask: Task<GeneratedAudio, Error>?
   private var activeGenerationID: UUID?
+  private var activeCancellationReason: String?
 
   public init(
     engine: any GenerationEngine,
@@ -31,6 +32,7 @@ public actor GenerationScheduler {
     activeGenerationTask?.cancel()
     activeGenerationTask = nil
     activeGenerationID = nil
+    activeCancellationReason = nil
     self.engine = engine
     consecutiveFailures = 0
     state = generationEnabled ? .idle : .deferred(reason: "Генерация выключена.")
@@ -44,6 +46,23 @@ public actor GenerationScheduler {
     } else if case .deferred = state {
       state = .idle
     }
+  }
+
+  public func cancelActiveGeneration(reason: String) async {
+    guard let activeGenerationTask else {
+      state = .deferred(reason: reason)
+      return
+    }
+
+    let generationID = activeGenerationID
+    activeCancellationReason = reason
+    activeGenerationTask.cancel()
+    _ = try? await activeGenerationTask.value
+    if activeGenerationID == generationID {
+      self.activeGenerationTask = nil
+      activeGenerationID = nil
+    }
+    state = .deferred(reason: reason)
   }
 
   public func generateNext(
@@ -105,7 +124,12 @@ public actor GenerationScheduler {
       state = generationEnabled ? .idle : .deferred(reason: "Генерация выключена.")
       return audio
     } catch is CancellationError {
-      state = generationEnabled ? .idle : .deferred(reason: "Генерация выключена.")
+      if let activeCancellationReason {
+        state = .deferred(reason: activeCancellationReason)
+        self.activeCancellationReason = nil
+      } else {
+        state = generationEnabled ? .idle : .deferred(reason: "Генерация выключена.")
+      }
       return nil
     } catch {
       consecutiveFailures += 1

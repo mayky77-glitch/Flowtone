@@ -105,4 +105,38 @@ struct RadioPlaybackQueueTests {
     #expect(clearedCurrent)
     #expect(queue.currentTrackID == nil)
   }
+
+  @Test("Current deletion prefers the queued neighbor then history then library")
+  func deletionReplacementOrder() {
+    let current = UUID()
+    let queued = UUID()
+    let previous = UUID()
+    let remaining = UUID()
+    let library = [current, remaining, previous, queued]
+
+    #expect(
+      CurrentTrackDeletionPlanner.replacementTrackID(
+        currentTrackID: current,
+        readyTrackIDs: [queued],
+        previousHistoryTrackID: previous,
+        libraryTrackIDs: library
+      ) == queued
+    )
+    #expect(
+      CurrentTrackDeletionPlanner.replacementTrackID(
+        currentTrackID: current,
+        readyTrackIDs: [],
+        previousHistoryTrackID: previous,
+        libraryTrackIDs: library
+      ) == previous
+    )
+    #expect(
+      CurrentTrackDeletionPlanner.replacementTrackID(
+        currentTrackID: current,
+        readyTrackIDs: [],
+        previousHistoryTrackID: nil,
+        libraryTrackIDs: [current, remaining]
+      ) == remaining
+    )
+  }
 }

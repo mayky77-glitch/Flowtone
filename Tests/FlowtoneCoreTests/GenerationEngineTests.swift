@@ -45,6 +45,20 @@ import Testing
     #expect(!arguments.contains("-c"))
   }
 
+  @Test func stableAudioRuntimeIsForcedOffline() {
+    let environment = StableAudioMLXCommand().environment(inheriting: ["PATH": "/usr/bin"])
+
+    #expect(environment["PATH"] == "/usr/bin")
+    #expect(environment["HF_HUB_OFFLINE"] == "1")
+    #expect(environment["TRANSFORMERS_OFFLINE"] == "1")
+    #expect(environment["HF_DATASETS_OFFLINE"] == "1")
+    #expect(environment["TOKENIZERS_PARALLELISM"] == "false")
+  }
+
+  @Test func radioTrackDurationStaysAtTwoMinutes() {
+    #expect(RadioGenerationPolicy.trackDurationSeconds == 120)
+  }
+
   @Test func cancellingStableAudioStopsItsProcessPromptly() async throws {
     let directory = FileManager.default.temporaryDirectory
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -79,6 +93,28 @@ import Testing
     #expect(
       !FileManager.default.fileExists(
         atPath: directory.appendingPathComponent("flowtone-sa3-17.wav").path))
+  }
+
+  @Test func cancellingSyntheticAudioRemovesPartialFile() async throws {
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let request = GenerationRequest(
+      prompt: "ambient",
+      negativePrompt: "vocals",
+      durationSeconds: 120,
+      seed: 23,
+      outputDirectory: directory
+    )
+    let task = Task { try await SyntheticAudioEngine().generate(request) }
+
+    try await Task.sleep(for: .milliseconds(5))
+    task.cancel()
+
+    await #expect(throws: CancellationError.self) { try await task.value }
+    #expect(
+      !FileManager.default.fileExists(
+        atPath: directory.appendingPathComponent("flowtone-23.wav.partial").path))
   }
 
   @Test func schedulerDefersWhenGenerationIsDisabled() async throws {
@@ -153,6 +189,38 @@ import Testing
       Issue.record("Disabled generation must stay deferred after cancellation")
       return
     }
+  }
+
+  @Test func memoryPressureCancellationWaitsForActiveWorkAndDefersScheduler() async throws {
+    let state = CancellationProbe()
+    let scheduler = GenerationScheduler(engine: CancellableGenerationEngine(state: state))
+    let task = Task {
+      try await scheduler.generateNext(
+        configuration: StationConfiguration(
+          genres: ["Ambient"],
+          energy: .calm,
+          tempoBPM: 70,
+          mood: .focused
+        ),
+        durationSeconds: 30,
+        seed: 6,
+        outputDirectory: FileManager.default.temporaryDirectory,
+        resources: ResourceSnapshot(
+          thermalState: .nominal,
+          memoryPressure: .normal,
+          lowPowerModeEnabled: false
+        )
+      )
+    }
+
+    while await !state.hasStarted {
+      await Task.yield()
+    }
+    await scheduler.cancelActiveGeneration(reason: "Недостаточно памяти")
+
+    #expect(try await task.value == nil)
+    #expect(await state.wasCancelled)
+    #expect(await scheduler.state == .deferred(reason: "Недостаточно памяти"))
   }
 }
 

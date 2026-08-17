@@ -12,7 +12,7 @@ SwiftUI App
         ├── ModelRecommender + ResourcePolicy
         ├── GenerationScheduler (actor, one job)
         ├── TrackTitleGenerator (local deterministic names)
-        ├── TrackLibrary (JSON index + local audio files)
+        ├── TrackLibrary (compact JSON index + local audio files)
         ├── RadioPlaybackQueue (current + 2 ready)
         ├── AudioPlaybackController (two AVAudioPlayerNode instances)
         ├── EqualPowerCrossfade
@@ -56,17 +56,29 @@ Library/
 └── Incoming/
 ```
 
-JSON index хранит название, жанры, лайк, размер, длительность, model engine, seed и playback metadata. Перед генерацией Flowtone резервирует место под следующий 120-секундный WAV. Если запись не помещается, приложение показывает системное предупреждение, прекращает создавать новые файлы и продолжает играть коллекцию. Генерация возобновляется после ручной очистки или увеличения лимита; автоматического удаления ради новой записи нет.
+Compact JSON index хранит название, жанры, лайк, временный статус, размер, длительность, model engine, seed и playback metadata. Перед генерацией Flowtone резервирует место под следующий 120-секундный WAV. Если запись не помещается, приложение показывает системное предупреждение, прекращает создавать новые файлы и продолжает играть коллекцию. Генерация возобновляется после ручной очистки или увеличения лимита; автоматического удаления постоянных записей ради новой генерации нет.
+
+В режиме «Полное радио» новые записи помечаются временными: сохраняются текущая, предыдущая и подготовленная очередь; лайк делает трек постоянным. В режиме «Радио с записью» каждый результат остаётся в коллекции до ручной очистки. При старте незавершённые файлы из `Incoming/` удаляются.
 
 Текущий и оба подготовленных трека защищены от ручного удаления и массовой очистки. Player заранее
 планирует следующий файл, а `AudioPlaybackController` определяет момент перехода по render time.
 SwiftUI-таймер только вызывает наблюдение за render clock; он не рассчитывает позицию аудио.
 
-Названия создаются локально и детерминированно из genre + energy + mood + vibe-hash + seed. Сырой vibe не копируется в заголовок, поэтому он не обрывается на предлоге. Старые обрезанные titles и index records без `title` получают стабильное fallback-название при декодировании.
+Названия создаются локально и детерминированно из genre + station pace + mood + vibe-hash + seed. Это одна связная фраза длиной не более десяти слов; сырой vibe не копируется в заголовок. Старые обрезанные, составные и повторяющиеся titles, а также index records без `title`, получают стабильное fallback-название при декодировании. Длинная строка прокручивается с паузой в начале и конце.
 
-`TempoPlanner` выбирает BPM из жанровых диапазонов, смещает его по энергии и иногда даёт ограниченное отклонение. `GenrePromptCatalog` задаёт ритм, тембры, фактуру и русское название 314 автоматических звуковых профилей для 28 жанров. Каждый жанр имеет минимум десять профилей; Fantasy, Dark Empire, Pirate, Light Rave, Cyberpunk и Funk имеют расширенные наборы. `GenreMixPlanner` детерминированно выбирает по seed от двух до пяти разных активных жанров, а `PromptComposer` сохраняет перый жанр ведущим по ритму и форме.
+`TempoPlanner` выбирает BPM из жанровых диапазонов, смещает его по темпу эфира и иногда даёт ограниченное отклонение. `GenrePromptCatalog` задаёт ритм, тембры, фактуру и русское название 314 автоматических звуковых профилей для 28 жанров. Каждый жанр имеет минимум десять профилей; Fantasy, Dark Empire, Pirate, Light Rave, Cyberpunk и Funk имеют расширенные наборы. `GenreMixPlanner` детерминированно выбирает по seed от двух до пяти разных активных жанров, а `PromptComposer` сохраняет первый жанр ведущим по ритму и форме.
 
-Player поддерживает seek, начало/конец, ±15 секунд, previous/next по session history и запуск выбранного трека из коллекции. Vinyl drag перемещает ту же audio position; forward/reverse preview использует чередующиеся player nodes, короткие PCM-буферы с envelope и varispeed. При pause автовращение останавливается; тонарм идёт к центру по реальному progress.
+Player поддерживает seek, начало/конец, ±15 секунд, previous/next по session history, случайный порядок и запуск выбранного трека из коллекции. Vinyl drag перемещает ту же audio position; forward/reverse preview использует чередующиеся player nodes, короткие PCM-буферы с envelope и varispeed. Пластинка вращается через видимый 60-Гц timeline, останавливается на pause и не перерисовывается в невидимом или свёрнутом окне; тонарм идёт к центру по реальному progress.
+
+## Resource and rendering policy
+
+- `GenerationScheduler` — actor с одной utility-priority generation job; параллельные модели не запускаются.
+- Stable Audio работает отдельным process на один трек. При выключении генерации process отменяется, после завершения модели не остаются резидентными в приложении.
+- Synthetic smoke engine пишет WAV блоками по 4096 frames в `.partial`, а не держит весь двухминутный файл в RAM.
+- До старта проверяются thermal state, Low Power Mode и memory pressure. Сигнал памяти во время работы отменяет job, дожидается process termination и чистит `Incoming/`; playback продолжается.
+- Аудиодвижок держит только current/next scheduling state; scratch загружает примерно 220 мс PCM. Library rows и genre statistics используют lazy containers.
+- Кольца винила рисуются одним `Canvas`, а не отдельной иерархией shape views. Marquee работает на 15 fps, винил — на 60 fps только пока окно видно и трек играет.
+- Единственные циклы ограничены размером очереди, числом WAV frames или количеством UI-дорожек; бесконечного polling loop нет.
 
 ## Stable Audio 3 Small MLX
 
@@ -138,6 +150,8 @@ sa3 --prompt <prompt> --negative-prompt <negative> \
 - ACE-Step quality adapter ещё не реализован.
 - Скрипт создаёт рабочий, но неподписанный `.app`. Signing/notarization намеренно вне scope repository Actions artifact и требуют отдельного решения владельца и credentials.
 - Системная memory-pressure защита подключена через `DispatchSource`; её пороги остаются системными.
+- `leaks` smoke на работающем debug-приложении показал стабильные 24 272 байта после повторного замера через 10 секунд; app-owned Flowtone frames в отчёте не обнаружены, оставшиеся roots относятся к SwiftUI/AVFoundation listener bindings.
+- Экранная запись UI подтверждает 60 fps stream для вращения винила; при скрытом окне timeline paused.
 
 ## Next implementation slice
 

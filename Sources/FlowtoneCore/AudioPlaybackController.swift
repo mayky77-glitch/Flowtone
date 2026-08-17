@@ -190,6 +190,25 @@ public final class AudioPlaybackController {
     isPlaying = false
   }
 
+  /// Stops both nodes and releases the current and queued file references.
+  public func clear() {
+    backend.stop(.primary)
+    backend.stop(.secondary)
+    currentItem = nil
+    queuedItem = nil
+    currentDuration = 0
+    currentStartPosition = 0
+    queuedDuration = nil
+    lastObservedPosition = 0
+    startedAt = nil
+    transitionHasStarted = false
+    hasRequestedNext = false
+    isPlaying = false
+    isScrubbing = false
+    lastScrubPreviewAt = nil
+    scrubPreviewNode = nil
+  }
+
   /// Immediately promotes the queued item, if present, and asks for a replacement.
   public func skip() throws {
     guard currentItem != nil else { throw AudioPlaybackControllerError.missingCurrentItem }

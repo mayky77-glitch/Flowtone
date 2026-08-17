@@ -69,3 +69,20 @@ public struct RadioPlaybackQueue: Equatable, Sendable {
 
   private static let readyCapacity = 2
 }
+
+public enum CurrentTrackDeletionPlanner {
+  public static func replacementTrackID(
+    currentTrackID: UUID,
+    readyTrackIDs: [UUID],
+    previousHistoryTrackID: UUID?,
+    libraryTrackIDs: [UUID]
+  ) -> UUID? {
+    let available = Set(libraryTrackIDs).subtracting([currentTrackID])
+    if let queued = readyTrackIDs.first(where: available.contains) { return queued }
+    if let previousHistoryTrackID, available.contains(previousHistoryTrackID) {
+      return previousHistoryTrackID
+    }
+    return libraryTrackIDs.first(where: available.contains)
+  }
+
+}

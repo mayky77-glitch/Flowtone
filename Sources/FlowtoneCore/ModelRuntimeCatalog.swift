@@ -50,7 +50,7 @@ public struct ModelRuntimeCatalog: Sendable {
           reason: "Исполняемый модуль Stable Audio 3 не найден по пути \(stableAudioRuntimePath).")
     case .quality:
       return .unsupported(
-        reason: "Качественный tier недоступен: адаптер ACE-Step ещё не поддерживается.")
+        reason: "Режим качества недоступен: адаптер ACE-Step ещё не подключён.")
     }
   }
 

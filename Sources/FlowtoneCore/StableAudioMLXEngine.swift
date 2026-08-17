@@ -3,6 +3,17 @@ import Foundation
 public struct StableAudioMLXCommand: Sendable {
   public init() {}
 
+  public func environment(inheriting base: [String: String] = ProcessInfo.processInfo.environment)
+    -> [String: String]
+  {
+    var environment = base
+    environment["HF_HUB_OFFLINE"] = "1"
+    environment["TRANSFORMERS_OFFLINE"] = "1"
+    environment["HF_DATASETS_OFFLINE"] = "1"
+    environment["TOKENIZERS_PARALLELISM"] = "false"
+    return environment
+  }
+
   public func arguments(for request: GenerationRequest, outputURL: URL) throws -> [String] {
     guard (1...120).contains(request.durationSeconds) else {
       throw GenerationEngineError.invalidDuration(request.durationSeconds)
@@ -78,6 +89,7 @@ public struct StableAudioMLXEngine: GenerationEngine {
     let errorPipe = Pipe()
     process.executableURL = executableURL
     process.arguments = arguments
+    process.environment = StableAudioMLXCommand().environment()
     process.standardOutput = outputPipe
     process.standardError = errorPipe
 

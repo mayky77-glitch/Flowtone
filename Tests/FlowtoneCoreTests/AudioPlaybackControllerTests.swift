@@ -149,6 +149,24 @@ struct AudioPlaybackControllerTests {
     #expect(requested == [next.id])
   }
 
+  @Test("Clear releases current and queued playback items")
+  func clearReleasesPlaybackItems() throws {
+    let backend = TestBackend(durations: [10, 8])
+    let controller = makeController(backend: backend)
+    try controller.load(current: item(1), next: item(2), crossfadeDuration: 2)
+    try controller.play()
+
+    controller.clear()
+
+    #expect(controller.currentID == nil)
+    #expect(controller.queuedID == nil)
+    #expect(controller.position == 0)
+    #expect(controller.duration == 0)
+    #expect(!controller.isPlaying)
+    #expect(!controller.isScrubbing)
+    #expect(Set(backend.stopped) == [.primary, .secondary])
+  }
+
   @Test("Seek clamps positions, preserves the queue, and resumes playback")
   func seekPreservesQueueAndPlayback() throws {
     let backend = TestBackend(durations: [10, 8, 10, 8, 10, 8, 10, 8])

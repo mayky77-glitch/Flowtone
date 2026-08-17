@@ -8,6 +8,7 @@ public final class SystemMemoryPressureMonitor: @unchecked Sendable {
   private let lock = NSLock()
   private let source: DispatchSourceMemoryPressure
   private var pressure: MemoryPressure = .normal
+  private var observers: [UUID: @Sendable (MemoryPressure) -> Void] = [:]
 
   private init() {
     source = DispatchSource.makeMemoryPressureSource(
@@ -24,6 +25,17 @@ public final class SystemMemoryPressureMonitor: @unchecked Sendable {
     lock.withLock { pressure }
   }
 
+  @discardableResult
+  public func observe(_ handler: @escaping @Sendable (MemoryPressure) -> Void) -> UUID {
+    let id = UUID()
+    lock.withLock { observers[id] = handler }
+    return id
+  }
+
+  public func removeObservation(_ id: UUID) {
+    lock.withLock { observers[id] = nil }
+  }
+
   private func recordCurrentEvent() {
     let event = source.data
     let next: MemoryPressure
@@ -34,6 +46,12 @@ public final class SystemMemoryPressureMonitor: @unchecked Sendable {
     } else {
       next = .normal
     }
-    lock.withLock { pressure = next }
+    let handlers = lock.withLock {
+      pressure = next
+      return Array(observers.values)
+    }
+    for handler in handlers {
+      handler(next)
+    }
   }
 }

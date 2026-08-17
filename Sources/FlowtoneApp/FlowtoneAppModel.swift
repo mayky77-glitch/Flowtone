@@ -16,6 +16,29 @@ enum TrackLibraryFilter: String, CaseIterable, Identifiable {
   }
 }
 
+enum RadioStorageMode: String, CaseIterable, Identifiable {
+  case live
+  case recording
+
+  var id: Self { self }
+
+  var title: String {
+    switch self {
+    case .live: "Полное радио"
+    case .recording: "Радио с записью"
+    }
+  }
+
+  var explanation: String {
+    switch self {
+    case .live:
+      "Новые треки временные. Flowtone хранит текущий, предыдущий и очередь; лайк защищает трек."
+    case .recording:
+      "Каждый новый трек остаётся в локальной коллекции до ручной очистки."
+    }
+  }
+}
+
 @MainActor
 final class FlowtoneAppModel: ObservableObject {
   static let availableGenres = GenrePromptCatalog.supportedGenres
@@ -35,8 +58,15 @@ final class FlowtoneAppModel: ObservableObject {
 
   @Published var selectedGenres: Set<String> = ["Ambient", "Lo-fi"]
   @Published var mixGenresEnabled = false
-  @Published var presetEditingGenre = "Ambient"
-  @Published var selectedPresetIDs: [String: String] = [:]
+  @Published var storageMode: RadioStorageMode {
+    didSet {
+      UserDefaults.standard.set(storageMode.rawValue, forKey: Self.storageModeKey)
+      if storageMode == .live { Task { await pruneTransientTracks() } }
+    }
+  }
+  @Published var shuffleEnabled: Bool {
+    didSet { UserDefaults.standard.set(shuffleEnabled, forKey: Self.shuffleKey) }
+  }
   @Published var energy: EnergyLevel = .calm
   @Published var mood: StationMood = .focused
   @Published var vibe = ""
@@ -63,6 +93,7 @@ final class FlowtoneAppModel: ObservableObject {
   }
   @Published var isLibraryPresented = false
   @Published var isStorageLimitAlertPresented = false
+  @Published var isCurrentDeleteConfirmationPresented = false
   @Published var libraryFilter: TrackLibraryFilter = .all
   @Published private(set) var tracks: [TrackRecord] = []
   @Published private(set) var libraryStatistics = LibraryStatistics.empty
@@ -84,8 +115,10 @@ final class FlowtoneAppModel: ObservableObject {
   let hardwareSupport: HardwareSupport
 
   private static let storageLimitKey = "Flowtone.storageLimitGiB"
+  private static let storageModeKey = "Flowtone.storageMode"
+  private static let shuffleKey = "Flowtone.shuffleEnabled"
   private static let requestedCrossfadeSeconds: TimeInterval = 6
-  private static let generatedTrackDurationSeconds = 120
+  private static let generatedTrackDurationSeconds = RadioGenerationPolicy.trackDurationSeconds
   private static let estimatedTrackByteSize: Int64 =
     Int64(generatedTrackDurationSeconds * 44_100 * 2 * 2 + 44)
   #if DEBUG
@@ -104,6 +137,7 @@ final class FlowtoneAppModel: ObservableObject {
   private var generationCursor = 0
   private var playbackHistory: [UUID] = []
   private var playbackHistoryIndex: Int?
+  private var memoryPressureObservationID: UUID?
 
   private lazy var playbackController: AudioPlaybackController = {
     let curve = EqualPowerCrossfade()
@@ -127,21 +161,36 @@ final class FlowtoneAppModel: ObservableObject {
   }()
 
   init() {
+    storageMode =
+      UserDefaults.standard.string(forKey: Self.storageModeKey)
+      .flatMap(RadioStorageMode.init(rawValue:)) ?? .recording
+    shuffleEnabled =
+      UserDefaults.standard.object(forKey: Self.shuffleKey) as? Bool ?? true
     let support = ModelRecommender().recommendation(for: .current)
     hardwareSupport = support
-    selectedModelTier = {
-      if case .supported(let recommended, _) = support { return recommended }
-      return .light
-    }()
+    selectedModelTier = .light
     let savedStorageLimit = UserDefaults.standard.object(forKey: Self.storageLimitKey) as? Int
     storageLimitGiB = max(1, savedStorageLimit ?? 5)
     licenseAcknowledgement = ModelLicenseAcknowledgement()
     hasAcknowledgedStableAudioTerms = licenseAcknowledgement.hasAcknowledgedStableAudioTerms
     library = TrackLibrary(rootDirectory: Self.libraryRootDirectory)
     scheduler = GenerationScheduler(engine: SyntheticAudioEngine())
+    memoryPressureObservationID = SystemMemoryPressureMonitor.shared.observe {
+      [weak self] pressure in
+      guard pressure != .normal else { return }
+      Task { @MainActor [weak self] in
+        await self?.handleMemoryPressure(pressure)
+      }
+    }
     Task {
       await configureGenerationRuntime()
       await bootstrapLibrary()
+    }
+  }
+
+  deinit {
+    if let memoryPressureObservationID {
+      SystemMemoryPressureMonitor.shared.removeObservation(memoryPressureObservationID)
     }
   }
 
@@ -163,6 +212,12 @@ final class FlowtoneAppModel: ObservableObject {
 
   var storageLimitAlertMessage: String {
     "Коллекция занимает \(Self.formatBytes(libraryStatistics.byteSize)) из лимита \(storageLimitGiB) ГБ. Новые треки не будут записываться, пока вы не удалите часть архива или не увеличите лимит. Уже сохранённая музыка продолжит играть."
+  }
+
+  var currentDeleteConfirmationMessage: String {
+    guard let currentTrack else { return "Трек будет безвозвратно удалён с Mac." }
+    return
+      "«\(currentTrack.title)» будет безвозвратно удалён с Mac. Flowtone сразу включит соседний трек."
   }
 
   var stableAudioRuntimePath: String { modelCatalog.stableAudioRuntimePath }
@@ -235,15 +290,6 @@ final class FlowtoneAppModel: ObservableObject {
     "\(libraryStatistics.trackCount) треков · \(Self.formatBytes(libraryStatistics.byteSize))"
   }
 
-  var presetGenreChoices: [String] {
-    let active = Self.availableGenres.filter(selectedGenres.contains)
-    return active.isEmpty ? Self.availableGenres : active
-  }
-
-  var presetsForEditingGenre: [GenrePreset] {
-    GenrePromptCatalog().presets(for: presetEditingGenre)
-  }
-
   func genreDisplayName(_ genre: String) -> String { Self.genreLabels[genre] ?? genre }
   func formatBytes(_ bytes: Int64) -> String { Self.formatBytes(bytes) }
 
@@ -252,30 +298,8 @@ final class FlowtoneAppModel: ObservableObject {
       selectedGenres.remove(genre)
     } else {
       selectedGenres.insert(genre)
-      presetEditingGenre = genre
-    }
-    if !selectedGenres.isEmpty, !selectedGenres.contains(presetEditingGenre) {
-      presetEditingGenre =
-        Self.availableGenres.first(where: selectedGenres.contains) ?? primaryGenre
     }
     if !canMixGenres { mixGenresEnabled = false }
-  }
-
-  func selectedPresetID(for genre: String) -> String {
-    selectedPresetIDs[genre] ?? ""
-  }
-
-  func selectPreset(_ presetID: String, for genre: String) {
-    if presetID.isEmpty {
-      selectedPresetIDs.removeValue(forKey: genre)
-    } else {
-      selectedPresetIDs[genre] = presetID
-    }
-    let presetTitle = GenrePromptCatalog().presets(for: genre)
-      .first(where: { $0.id == presetID })?.title
-    statusText =
-      presetTitle.map { "Пресет «\($0)» применится со следующего трека" }
-      ?? "Пресет будет выбираться автоматически"
   }
 
   func toggleAllGenres() {
@@ -427,10 +451,10 @@ final class FlowtoneAppModel: ObservableObject {
     }
   }
 
-  func updatePlayback() {
+  func updatePlayback(publishUI: Bool = true) {
     guard playbackController.isPlaying || playbackController.isScrubbing else { return }
     playbackController.update()
-    synchronizePlaybackState()
+    if publishUI { synchronizePlaybackState() }
   }
 
   func isTrackProtected(_ trackID: UUID) -> Bool {
@@ -440,6 +464,16 @@ final class FlowtoneAppModel: ObservableObject {
   func toggleCurrentLike() {
     guard let currentTrack else { return }
     Task { await setLiked(!currentTrack.isLiked, trackID: currentTrack.id) }
+  }
+
+  func requestCurrentTrackDeletion() {
+    guard currentTrack != nil else { return }
+    isCurrentDeleteConfirmationPresented = true
+  }
+
+  func confirmCurrentTrackDeletion() {
+    isCurrentDeleteConfirmationPresented = false
+    Task { await deleteCurrentTrack() }
   }
 
   func toggleLike(trackID: UUID) {
@@ -493,7 +527,9 @@ final class FlowtoneAppModel: ObservableObject {
   private func bootstrapLibrary() async {
     do {
       _ = try await library.load()
+      _ = try await library.removeOrphanedIncomingAudio()
       try await refreshLibrary()
+      await pruneTransientTracks()
       isLibraryLoading = false
       if let track = try await library.randomCompatibleTrack(genres: selectedGenres) {
         try await play(track)
@@ -525,6 +561,7 @@ final class FlowtoneAppModel: ObservableObject {
   }
 
   private func generateTrack(playWhenReady: Bool) async {
+    await pruneTransientTracks()
     guard canGenerateTrack, !isGenerating else {
       if isStoragePaused { presentStorageLimitAlert() }
       if generationEnabled, !generationRuntimeReady { statusText = modelRuntimeStatusText }
@@ -543,18 +580,12 @@ final class FlowtoneAppModel: ObservableObject {
       let genres = nextGenerationGenres(seed: seed)
       guard let leadGenre = genres.first else { return }
       let automaticTempo = TempoPlanner().tempo(for: leadGenre, energy: energy, seed: seed)
-      let presetIDs: [String: String] = Dictionary(
-        uniqueKeysWithValues: genres.compactMap { genre in
-          selectedPresetIDs[genre].map { (genre, $0) }
-        }
-      )
       let configuration = StationConfiguration(
         genres: genres,
         energy: energy,
         tempoBPM: automaticTempo,
         mood: mood,
-        vibe: vibe,
-        genrePresetIDs: presetIDs
+        vibe: vibe
       )
       let outputDirectory = await library.incomingDirectory
       let audio = try await scheduler.generateNext(
@@ -581,7 +612,11 @@ final class FlowtoneAppModel: ObservableObject {
         return
       }
 
-      let track = try await library.importGeneratedAudio(audio, configuration: configuration)
+      let track = try await library.importGeneratedAudio(
+        audio,
+        configuration: configuration,
+        isTransient: storageMode == .live
+      )
       try await refreshLibrary()
       if playWhenReady || currentTrackID == nil {
         try await play(track)
@@ -595,6 +630,7 @@ final class FlowtoneAppModel: ObservableObject {
         await prepareNextPlaybackItem(for: currentTrackID)
         statusText = "Новая запись готова и добавлена в очередь"
       }
+      await pruneTransientTracks()
     } catch {
       statusText = error.localizedDescription
     }
@@ -634,6 +670,7 @@ final class FlowtoneAppModel: ObservableObject {
     }
     synchronizePlaybackState()
     _ = try await library.markPlayed(trackID: track.id)
+    await pruneTransientTracks()
     try await refreshLibrary()
     statusText = "Станция в эфире"
   }
@@ -652,8 +689,9 @@ final class FlowtoneAppModel: ObservableObject {
     synchronizePlaybackState()
     do {
       _ = try await library.markPlayed(trackID: incomingID)
-      try await refreshLibrary()
       try await fillPlaybackQueue()
+      await pruneTransientTracks()
+      try await refreshLibrary()
       await prepareNextPlaybackItem(for: incomingID)
       statusText = "Плавный переход · станция в эфире"
       if canGenerateTrack, !isGenerating {
@@ -694,16 +732,34 @@ final class FlowtoneAppModel: ObservableObject {
 
   private func fillPlaybackQueue() async throws {
     while playbackQueue.needsPrefill {
-      let excluded = playbackQueue.protectedTrackIDs
-      var candidate = try await library.leastRecentlyPlayedTrack(
-        genres: selectedGenres,
-        excluding: excluded
-      )
+      let protected = playbackQueue.protectedTrackIDs
+      let recent = Set(playbackHistory.suffix(3))
+      let preferredExclusions = protected.union(recent)
+      var candidate = try await nextLibraryCandidate(excluding: preferredExclusions)
       if candidate == nil {
-        candidate = try await library.leastRecentlyPlayedTrack(genres: [], excluding: excluded)
+        candidate = try await nextLibraryCandidate(excluding: protected)
       }
       guard let candidate, playbackQueue.enqueue(candidate.id) else { break }
     }
+  }
+
+  private func nextLibraryCandidate(excluding: Set<UUID>) async throws -> TrackRecord? {
+    let filtered: TrackRecord?
+    if shuffleEnabled {
+      filtered = try await library.randomCompatibleTrack(
+        genres: selectedGenres,
+        excluding: excluding
+      )
+    } else {
+      filtered = try await library.leastRecentlyPlayedTrack(
+        genres: selectedGenres,
+        excluding: excluding
+      )
+    }
+    if filtered != nil { return filtered }
+    return shuffleEnabled
+      ? try await library.randomCompatibleTrack(genres: [], excluding: excluding)
+      : try await library.leastRecentlyPlayedTrack(genres: [], excluding: excluding)
   }
 
   private func playbackItem(for trackID: UUID) async throws -> AudioPlaybackItem {
@@ -779,9 +835,62 @@ final class FlowtoneAppModel: ObservableObject {
     do {
       _ = try await library.setLiked(liked, trackID: trackID)
       try await refreshLibrary()
+      await pruneTransientTracks()
       statusText = liked ? "Запись сохранена в любимых" : "Запись убрана из любимых"
     } catch {
       statusText = error.localizedDescription
+    }
+  }
+
+  private func deleteCurrentTrack() async {
+    guard let trackID = currentTrackID else { return }
+    let replacementID = CurrentTrackDeletionPlanner.replacementTrackID(
+      currentTrackID: trackID,
+      readyTrackIDs: playbackQueue.readyTrackIDs,
+      previousHistoryTrackID: previousHistoryIndex.map { playbackHistory[$0] },
+      libraryTrackIDs: tracks.map(\.id)
+    )
+
+    playbackController.clear()
+    playbackQueue = RadioPlaybackQueue()
+    currentTrackID = nil
+    synchronizePlaybackState()
+
+    do {
+      _ = try await library.removeTrack(trackID: trackID)
+      playbackHistory.removeAll { $0 == trackID }
+      playbackHistoryIndex = nil
+      try await refreshLibrary()
+
+      if let replacementID, let replacement = trackRecord(for: replacementID) {
+        try await play(replacement)
+        statusText = "Трек удалён · играет соседняя запись"
+      } else if canGenerateTrack {
+        await generateTrack(playWhenReady: true)
+      } else {
+        statusText = "Трек удалён · коллекция пуста"
+      }
+    } catch {
+      statusText = error.localizedDescription
+    }
+  }
+
+  private func pruneTransientTracks() async {
+    guard storageMode == .live else { return }
+    do {
+      var protected = playbackQueue.protectedTrackIDs
+      if let playbackHistoryIndex,
+        playbackHistory.indices.contains(playbackHistoryIndex)
+      {
+        protected.insert(playbackHistory[playbackHistoryIndex])
+        if playbackHistoryIndex > 0 {
+          protected.insert(playbackHistory[playbackHistoryIndex - 1])
+        }
+      }
+      let report = try await library.removeUnlikedTransient(protectedTrackIDs: protected)
+      if report.removedTrackCount > 0 { try await refreshLibrary() }
+    } catch {
+      statusText = "Не удалось очистить временные треки: \(error.localizedDescription)"
     }
   }
 
@@ -829,7 +938,9 @@ final class FlowtoneAppModel: ObservableObject {
   }
 
   private func modelName(for tier: ModelTier) -> String {
-    tier == .quality ? "Качество · ACE-Step" : "Лёгкая · Stable Audio 3 Small"
+    tier == .quality
+      ? "Качество · ACE-Step (не подключён)"
+      : "Лёгкая · Stable Audio 3 Small"
   }
 
   private func configureGenerationRuntime() async {
@@ -880,6 +991,17 @@ final class FlowtoneAppModel: ObservableObject {
       generationRuntimeReady = false
       modelRuntimeStatusText = reason
     }
+  }
+
+  private func handleMemoryPressure(_ pressure: MemoryPressure) async {
+    let reason =
+      pressure == .critical
+      ? "Генерация остановлена: системе срочно нужна память."
+      : "Генерация остановлена из-за нехватки памяти."
+    await scheduler.cancelActiveGeneration(reason: reason)
+    _ = try? await library.removeOrphanedIncomingAudio()
+    isGenerating = false
+    statusText = "\(reason) Временный кэш очищен; музыка продолжает играть."
   }
 
   private static var libraryRootDirectory: URL {

@@ -1,5 +1,9 @@
 import Foundation
 
+public enum RadioGenerationPolicy {
+  public static let trackDurationSeconds = 120
+}
+
 public struct EngineDescriptor: Equatable, Sendable {
   public let id: String
   public let displayName: String

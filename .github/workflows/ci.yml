@@ -24,3 +24,17 @@ jobs:
           package_root="$(mktemp -d)"
           trap 'rm -rf "$package_root"' EXIT
           scripts/package-app.sh "$package_root/output"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$package_root/output/Flowtone.app" \
+            "$package_root/Flowtone-unsigned-macos.app.zip"
+          test -s "$package_root/Flowtone-unsigned-macos.app.zip"
+          mkdir -p dist
+          cp "$package_root/Flowtone-unsigned-macos.app.zip" dist/
+      - name: Upload unsigned macOS app artifact
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowtone-unsigned-macos-app-${{ github.sha }}
+          path: dist/Flowtone-unsigned-macos.app.zip
+          if-no-files-found: error
+          retention-days: 14

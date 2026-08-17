@@ -55,6 +55,8 @@ final class FlowtoneAppModel: ObservableObject {
   @Published private(set) var isLibraryLoading = true
   @Published private(set) var generationRuntimeReady = false
   @Published private(set) var modelRuntimeStatusText = "Проверяю локальную модель…"
+  @Published private(set) var hasAcknowledgedStableAudioTerms = false
+  @Published private(set) var isUsingDevelopmentAudio = false
 
   let hardware = HardwareProfile.current
   let hardwareSupport: HardwareSupport
@@ -70,6 +72,7 @@ final class FlowtoneAppModel: ObservableObject {
   private let library: TrackLibrary
   private let scheduler: GenerationScheduler
   private let modelCatalog = ModelRuntimeCatalog()
+  private let licenseAcknowledgement: ModelLicenseAcknowledgement
   private let crossfade = EqualPowerCrossfade()
   private var playbackQueue = RadioPlaybackQueue()
   private var isPreparingNext = false
@@ -105,6 +108,8 @@ final class FlowtoneAppModel: ObservableObject {
     }()
     let savedStorageLimit = UserDefaults.standard.object(forKey: Self.storageLimitKey) as? Int
     storageLimitGiB = max(1, savedStorageLimit ?? 5)
+    licenseAcknowledgement = ModelLicenseAcknowledgement()
+    hasAcknowledgedStableAudioTerms = licenseAcknowledgement.hasAcknowledgedStableAudioTerms
     library = TrackLibrary(rootDirectory: Self.libraryRootDirectory)
     scheduler = GenerationScheduler(engine: SyntheticAudioEngine())
     Task {
@@ -128,6 +133,20 @@ final class FlowtoneAppModel: ObservableObject {
   var selectedModelText: String { modelName(for: selectedModelTier) }
 
   var canGenerateTrack: Bool { generationEnabled && generationRuntimeReady }
+
+  var stableAudioRuntimePath: String { modelCatalog.stableAudioRuntimePath }
+
+  var stableAudioRuntimeIsExecutable: Bool { modelCatalog.hasStableAudioExecutable }
+
+  var stableAudioTermsAcknowledgementText: String {
+    ModelLicenseAcknowledgement.stableAudioTermsAcknowledgementText
+  }
+
+  var generationActionTitle: String {
+    isUsingDevelopmentAudio
+      ? (currentTrack == nil ? "Создать тестовую" : "Создать тестовую ещё")
+      : (currentTrack == nil ? "Создать первую" : "Создать ещё")
+  }
 
   var selectedModelWarning: String? {
     guard selectedModelTier == .quality, hardware.memoryGiB < 24 else { return nil }
@@ -195,6 +214,16 @@ final class FlowtoneAppModel: ObservableObject {
 
   func generateDevelopmentPreview() async {
     await generateTrack(playWhenReady: currentTrackID == nil)
+  }
+
+  func acknowledgeStableAudioTermsRead() {
+    licenseAcknowledgement.acknowledgeStableAudioTerms()
+    hasAcknowledgedStableAudioTerms = true
+    Task { await configureGenerationRuntime() }
+  }
+
+  func refreshGenerationRuntime() {
+    Task { await configureGenerationRuntime() }
   }
 
   func skipTrack() {
@@ -499,6 +528,22 @@ final class FlowtoneAppModel: ObservableObject {
 
   private func configureGenerationRuntime() async {
     let requestedTier = selectedModelTier
+    isUsingDevelopmentAudio = false
+
+    guard requestedTier == .light else {
+      generationRuntimeReady = false
+      if case .unsupported(let reason) = modelCatalog.availability(for: requestedTier) {
+        modelRuntimeStatusText = reason
+      }
+      return
+    }
+
+    guard hasAcknowledgedStableAudioTerms else {
+      await configureUnavailableStableAudioRuntime(
+        reason: "Нужно подтвердить, что вы сами прочитали официальные условия и страницу модели.")
+      return
+    }
+
     switch modelCatalog.availability(for: requestedTier) {
     case .available:
       guard let engine = modelCatalog.stableAudioEngine() else {
@@ -511,16 +556,21 @@ final class FlowtoneAppModel: ObservableObject {
       generationRuntimeReady = true
       modelRuntimeStatusText = "Stable Audio 3 Small готова · генерация на этом Mac"
     case .unavailable(let reason):
-      if Self.developmentAudioEnabled {
-        await scheduler.replaceEngine(SyntheticAudioEngine())
-        guard selectedModelTier == requestedTier else { return }
-        generationRuntimeReady = true
-        modelRuntimeStatusText = "Демо-движок · \(reason)"
-      } else {
-        generationRuntimeReady = false
-        modelRuntimeStatusText = reason
-      }
+      await configureUnavailableStableAudioRuntime(reason: reason)
     case .unsupported(let reason):
+      generationRuntimeReady = false
+      modelRuntimeStatusText = reason
+    }
+  }
+
+  private func configureUnavailableStableAudioRuntime(reason: String) async {
+    if Self.developmentAudioEnabled {
+      await scheduler.replaceEngine(SyntheticAudioEngine())
+      guard selectedModelTier == .light else { return }
+      isUsingDevelopmentAudio = true
+      generationRuntimeReady = true
+      modelRuntimeStatusText = "Режим разработки: синтетический звук, не Stable Audio. \(reason)"
+    } else {
       generationRuntimeReady = false
       modelRuntimeStatusText = reason
     }

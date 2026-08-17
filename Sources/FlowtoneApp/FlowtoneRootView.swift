@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import FlowtoneCore
 import SwiftUI
@@ -195,6 +196,7 @@ private struct GenreChip: View {
 
 private struct NowPlayingStage: View {
   @ObservedObject var model: FlowtoneAppModel
+  @State private var isModelSetupPresented = false
 
   var body: some View {
     VStack(spacing: 0) {
@@ -285,7 +287,7 @@ private struct NowPlayingStage: View {
             } else {
               Image(systemName: "waveform.badge.plus")
             }
-            Text(model.currentTrack == nil ? "Создать первую" : "Создать ещё")
+            Text(model.generationActionTitle)
           }
           .font(.system(size: 14, weight: .semibold, design: .rounded))
           .foregroundStyle(FlowtonePalette.canvas)
@@ -321,6 +323,10 @@ private struct NowPlayingStage: View {
       .foregroundStyle(FlowtonePalette.muted)
       .padding(28)
     }
+    .sheet(isPresented: $isModelSetupPresented) {
+      StableAudioSetupSheet(model: model)
+        .frame(minWidth: 560, idealWidth: 620, minHeight: 500, idealHeight: 650)
+    }
   }
 
   private var modelBadge: some View {
@@ -352,6 +358,16 @@ private struct NowPlayingStage: View {
         .lineLimit(2)
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: 300, alignment: .leading)
+
+      if model.selectedModelTier == .light {
+        Button("Настроить модель") {
+          isModelSetupPresented = true
+        }
+        .font(.system(size: 9, weight: .semibold, design: .rounded))
+        .buttonStyle(.bordered)
+        .tint(FlowtonePalette.signal)
+        .accessibilityHint("Откроет настройку Stable Audio 3 Small")
+      }
     }
     .frame(width: 300, alignment: .leading)
     .padding(.horizontal, 14)
@@ -389,6 +405,163 @@ private struct NowPlayingStage: View {
       }
     }
     .buttonStyle(.plain)
+  }
+}
+
+private struct StableAudioSetupSheet: View {
+  @ObservedObject var model: FlowtoneAppModel
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    ZStack {
+      LinearGradient(
+        colors: [FlowtonePalette.canvasTop, FlowtonePalette.canvas, FlowtonePalette.canvasBottom],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+      )
+      .ignoresSafeArea()
+
+      VStack(spacing: 0) {
+        HStack(alignment: .top, spacing: 16) {
+          VStack(alignment: .leading, spacing: 5) {
+            Text("НАСТРОЙКА МОДЕЛИ")
+              .font(.system(size: 10, weight: .semibold, design: .monospaced))
+              .tracking(1.2)
+              .foregroundStyle(FlowtonePalette.signal)
+            Text("Stable Audio 3 Small")
+              .font(.system(size: 25, weight: .medium, design: .serif))
+              .foregroundStyle(FlowtonePalette.ink)
+            Text("Ручная установка и проверка доступа")
+              .font(.system(size: 12, design: .rounded))
+              .foregroundStyle(FlowtonePalette.muted)
+          }
+
+          Spacer()
+
+          Button(action: { dismiss() }) {
+            Label("Закрыть", systemImage: "xmark")
+              .labelStyle(.iconOnly)
+              .frame(width: 32, height: 32)
+          }
+          .buttonStyle(.bordered)
+          .tint(FlowtonePalette.signal)
+          .accessibilityLabel("Закрыть настройку модели")
+          .accessibilityHint("Также можно нажать Escape")
+        }
+        .padding(.horizontal, 28)
+        .padding(.top, 26)
+        .padding(.bottom, 18)
+
+        Rectangle()
+          .fill(FlowtonePalette.line)
+          .frame(height: 1)
+
+        ScrollView {
+          StableAudioSetupGate(model: model)
+            .padding(28)
+        }
+        .accessibilityLabel("Настройка Stable Audio 3 Small")
+      }
+    }
+  }
+}
+
+private struct StableAudioSetupGate: View {
+  @ObservedObject var model: FlowtoneAppModel
+
+  private static let repositoryURL = URL(string: "https://github.com/Stability-AI/stable-audio-3")!
+  private static let mlxInstructionsURL = URL(
+    string: "https://github.com/Stability-AI/stable-audio-3/tree/main/optimized/mlx")!
+  private static let modelCardURL = URL(
+    string: "https://huggingface.co/stabilityai/stable-audio-3-small-music")!
+  private static let licenseURL = URL(string: "https://stability.ai/license")!
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 9) {
+      Text("НАСТРОЙКА STABLE AUDIO 3 SMALL")
+        .font(.system(size: 8, weight: .semibold, design: .monospaced))
+        .tracking(0.8)
+        .foregroundStyle(FlowtonePalette.muted)
+
+      Text("Flowtone не принимает условия за вас и не скачивает веса с ограниченным доступом.")
+        .font(.system(size: 10, design: .rounded))
+        .foregroundStyle(FlowtonePalette.ink)
+        .fixedSize(horizontal: false, vertical: true)
+
+      VStack(alignment: .leading, spacing: 5) {
+        Text("Установите исполняемый модуль вручную по пути:")
+          .font(.system(size: 9, design: .rounded))
+          .foregroundStyle(FlowtonePalette.muted)
+        Text(model.stableAudioRuntimePath)
+          .font(.system(size: 8, design: .monospaced))
+          .textSelection(.enabled)
+          .foregroundStyle(FlowtonePalette.ink)
+          .fixedSize(horizontal: false, vertical: true)
+        Label(
+          model.stableAudioRuntimeIsExecutable
+            ? "Исполняемый модуль найден"
+            : "Исполняемый модуль не найден или недоступен",
+          systemImage: model.stableAudioRuntimeIsExecutable
+            ? "checkmark.circle.fill" : "xmark.circle"
+        )
+        .font(.system(size: 9, design: .rounded))
+        .foregroundStyle(
+          model.stableAudioRuntimeIsExecutable ? FlowtonePalette.muted : FlowtonePalette.signal)
+      }
+
+      HStack(spacing: 7) {
+        officialPageButton("Репозиторий", url: Self.repositoryURL)
+        officialPageButton("MLX-инструкция", url: Self.mlxInstructionsURL)
+      }
+      HStack(spacing: 7) {
+        officialPageButton("Страница модели", url: Self.modelCardURL)
+        officialPageButton("Лицензия", url: Self.licenseURL)
+      }
+
+      Text(
+        "На Hugging Face доступ к модели ограничен, и она также ссылается на условия Gemma. Примите применимые условия только лично на официальных страницах."
+      )
+      .font(.system(size: 9, design: .rounded))
+      .foregroundStyle(FlowtonePalette.muted)
+      .fixedSize(horizontal: false, vertical: true)
+
+      Text(model.stableAudioTermsAcknowledgementText)
+        .font(.system(size: 9, design: .rounded))
+        .foregroundStyle(FlowtonePalette.muted)
+        .fixedSize(horizontal: false, vertical: true)
+
+      if model.hasAcknowledgedStableAudioTerms {
+        Label("Отметка о прочтении сохранена", systemImage: "checkmark.circle.fill")
+          .font(.system(size: 9, design: .rounded))
+          .foregroundStyle(FlowtonePalette.muted)
+      } else {
+        Button(action: model.acknowledgeStableAudioTermsRead) {
+          Text("Я сам(а) открыл(а) и прочитал(а) официальные условия")
+            .font(.system(size: 9, weight: .semibold, design: .rounded))
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .buttonStyle(.bordered)
+        .tint(FlowtonePalette.signal)
+        .accessibilityHint(model.stableAudioTermsAcknowledgementText)
+      }
+
+      Button("Проверить локальный движок", action: model.refreshGenerationRuntime)
+        .font(.system(size: 9, weight: .semibold, design: .rounded))
+        .buttonStyle(.bordered)
+        .tint(FlowtonePalette.signal)
+        .accessibilityHint("Повторно проверит исполняемый модуль по указанному пути")
+    }
+    .padding(.top, 2)
+  }
+
+  private func officialPageButton(_ title: String, url: URL) -> some View {
+    Button(title) { NSWorkspace.shared.open(url) }
+      .font(.system(size: 9, weight: .semibold, design: .rounded))
+      .buttonStyle(.bordered)
+      .tint(FlowtonePalette.signal)
+      .accessibilityLabel("Открыть: \(title)")
+      .accessibilityHint("Откроется официальная страница в браузере")
   }
 }
 

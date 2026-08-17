@@ -25,7 +25,7 @@
 
 ## 1. Executive Summary
 
-Flowtone — бесплатное open-source приложение для владельцев Apple Silicon Mac, которым нужна фоновая музыка для работы и концентрации. Пользователь один раз задаёт жанры, энергию, темп, настроение и при желании текстовый вайб, после чего Flowtone локально генерирует инструментальные треки и воспроизводит их как непрерывную радиостанцию. Продукт убирает поиск плейлистов, рекламу, подписку и зависимость от интернета. Успех MVP означает, что пользователь может слушать станцию не менее часа без поиска другой музыки, а система способна поддерживать 6–10-часовую сессию без пауз и заметного перегрева.
+Flowtone — бесплатное open-source приложение для владельцев Apple Silicon Mac, которым нужна фоновая музыка для работы и концентрации. Пользователь один раз задаёт жанры, энергию, темп, настроение и при желании текстовый вайб, после чего Flowtone локально генерирует инструментальные треки и воспроизводит их как непрерывную радиостанцию. Продукт убирает поиск плейлистов, рекламу, подписку и зависимость от интернета. Успех MVP означает, что пользователь может слушать станцию не менее часа без поиска другой музыки; длительное ручное тестирование владелец продукта выполнит самостоятельно.
 
 🔶 **Assumption:** проблема характерна не только владельцу проекта, но и заметной группе пользователей Mac, работающих под фоновую музыку. Сейчас гипотеза основана только на личном опыте.
 
@@ -113,9 +113,10 @@ Flowtone — бесплатное open-source приложение для вла
 ### Модель распространения
 
 - Бесплатное open-source приложение.
-- Первая публичная сборка: подписанный и notarized `.dmg` через GitHub Releases.
-- 🔵 **Open Question:** лицензия исходного кода должна быть выбрана до публичного релиза.
-- Веса моделей не входят автоматически в лицензию Flowtone и скачиваются отдельно после показа соответствующих условий.
+- Исходный код Flowtone распространяется под MIT License.
+- Первая публичная сборка: unsigned `Flowtone.app.zip` как GitHub Actions artifact при push/tag, срок хранения 14 дней; GitHub Release не создаётся.
+- Веса моделей не входят автоматически в MIT-лицензию Flowtone и регулируются отдельными upstream terms.
+- Unsigned-приложение может показать предупреждение Gatekeeper; пользователь должен самостоятельно разрешить запуск.
 
 ### Market Opportunity
 
@@ -127,10 +128,10 @@ TAM/SAM/SOM не рассчитывались. Для текущего open-sour
 
 ### 5.1 Пользовательский сценарий
 
-1. Пользователь устанавливает Flowtone из notarized `.dmg`.
+1. Пользователь скачивает unsigned `Flowtone.app.zip` из GitHub Actions artifacts и распаковывает приложение.
 2. Приложение определяет chip и объём unified memory.
 3. Flowtone рекомендует лёгкую или тяжёлую модель; пользователь может изменить выбор.
-4. Пользователь принимает условия модели и загружает её с отображением прогресса.
+4. Flowtone показывает ссылки на официальные страницы условий модели и просит пользователя подтвердить, что он их прочитал; эта отметка не принимает terms за пользователя. Автоматического downloader, checksum или provisioning нет.
 5. Пользователь выбирает один или несколько жанров, энергию, темп и настроение.
 6. При желании добавляет свободное текстовое описание вайба.
 7. Flowtone запускает станцию и поддерживает очередь готовых треков.
@@ -183,8 +184,8 @@ flowchart TD
 | Audio storage | Application Support + security-scoped export | Локальное хранение и пользовательский экспорт |
 | Light inference | Stable Audio 3 Small через Core ML или MLX adapter | Компактный instrumental engine с официальным Mac-путём |
 | Heavy inference | ACE-Step 1.5 через изолированный MLX/helper process | Более тяжёлый quality tier без блокировки UI процесса |
-| Packaging | Xcode, hardened runtime, codesign, notarization | Безопасный `.dmg` для GitHub Releases |
-| Tests | XCTest, integration harness, 10-hour soak test | Проверка scheduler, storage и непрерывности |
+| Packaging | Xcode, unsigned app zip artifact | Простая доставка через GitHub Actions без GitHub Release, signing и notarization |
+| Tests | XCTest, smoke/integration harness, короткие runtime checks | Проверка scheduler, storage и непрерывности; длительное ручное тестирование выполняет владелец |
 
 🔶 **Assumption:** Core Data предпочтительнее SwiftData, пока не утверждена минимальная версия macOS. Решение можно пересмотреть после выбора deployment target.
 
@@ -225,7 +226,7 @@ flowchart TD
 
 - Определяет hardware class и рекомендует engine.
 - Показывает размер, требования, лицензию и ожидаемую нагрузку.
-- Поддерживает resumable download, checksum и повтор после ошибки.
+- Не автоматизирует downloader, checksum или provisioning; показывает официальные model terms и локальную отметку чтения.
 - Проверяет свободное место до загрузки.
 - Позволяет удалить неиспользуемую модель.
 - Не блокирует ручной выбор тяжёлой модели, но показывает предупреждение.
@@ -251,15 +252,15 @@ flowchart TD
 | Light | Stable Audio 3 Small-Music | M1+, 8 ГБ minimum; 16 ГБ recommended | Основной кандидат MVP |
 | Quality | ACE-Step 1.5 | 24 ГБ+ recommended | Экспериментальный, зависит от benchmark |
 
-Все hardware-пороги — 🔶 **Assumption**. Обязателен benchmark минимум на M1/8 ГБ, M1 или M2/16 ГБ и современном Mac/24–32 ГБ.
+Все hardware-пороги — 🔶 **Assumption**. Нужны короткие smoke/runtime проверки минимум на M1/8 ГБ, M1 или M2/16 ГБ и современном Mac/24–32 ГБ.
 
 Stable Audio code и model weights имеют разные условия. Для весов действует [Stable Audio Community License](https://stability.ai/license). ACE-Step также требует отдельной проверки code/model/data terms перед релизом.
 
 ### 5.7 Оценка хранилища
 
-При 120-секундных WAV 44.1 kHz stereo 16-bit один трек занимает около 21 МБ. С crossfade 6 секунд получается около 31.6 новых трека в час, то есть примерно 0.67 ГБ/час или 6.7 ГБ за 10-часовую сессию.
+При 120-секундных WAV 44.1 kHz stereo 16-bit один трек занимает около 21 МБ. С crossfade 6 секунд получается около 31.6 новых трека в час, то есть примерно 0.67 ГБ/час.
 
-🔶 **Assumption:** архивное хранение в M4A/AAC 256 kbps уменьшит объём примерно до 3.8 МБ на трек и 1.2 ГБ за 10 часов. Нужно проверить, устраивает ли качество и не создаёт ли транскодирование заметную нагрузку.
+🔶 **Assumption:** архивное хранение в M4A/AAC 256 kbps уменьшит объём примерно до 3.8 МБ на трек. Нужно проверить, устраивает ли качество и не создаёт ли транскодирование заметную нагрузку.
 
 ---
 
@@ -277,8 +278,8 @@ Stable Audio code и model weights имеют разные условия. Дл�
 
 | Метрика | Цель MVP |
 |---|---|
-| Buffer underruns в 10-часовом soak test | 0 |
-| Необработанные падения в 10-часовом soak test | 0 |
+| Buffer underruns в smoke/runtime checks | 0 |
+| Необработанные падения в smoke/runtime checks | 0 |
 | Старт воспроизведения из существующей коллекции | 🔶 не более 2 секунд |
 | Потеря metadata после штатного завершения/перезапуска | 0 |
 | Удаление лайкнутых файлов автоматической очисткой | 0 |
@@ -307,7 +308,7 @@ Stable Audio code и model weights имеют разные условия. Дл�
 
 ### Epic Hypothesis
 
-Мы считаем, что локальная инструментальная радиостанция с настройкой жанра и вайба позволит пользователям Mac работать не менее часа без поиска другой музыки, потому что Flowtone заранее генерирует подходящие треки и продолжает играть из локальной коллекции при любой доступности генератора. Проверка: 60-минутные пользовательские сессии, 10-часовой soak test и resource benchmark.
+Мы считаем, что локальная инструментальная радиостанция с настройкой жанра и вайба позволит пользователям Mac работать не менее часа без поиска другой музыки, потому что Flowtone заранее генерирует подходящие треки и продолжает играть из локальной коллекции при любой доступности генератора. Проверка: 60-минутные пользовательские сессии, smoke/runtime checks и resource benchmark.
 
 ### Story 1 — Первый запуск и установка модели
 
@@ -317,11 +318,9 @@ Stable Audio code и model weights имеют разные условия. Дл�
 
 - [ ] Flowtone определяет Apple Silicon chip и объём unified memory.
 - [ ] Показывает рекомендуемую модель, размер загрузки и требования.
-- [ ] До загрузки показывает условия модели и требует подтверждение.
+- [ ] Показывает официальные условия модели и даёт локально отметить их прочтение; отметка не принимает terms за пользователя.
 - [ ] Проверяет свободное место.
-- [ ] Показывает прогресс, поддерживает retry и продолжение прерванной загрузки.
-- [ ] Проверяет checksum перед активацией модели.
-- [ ] При ошибке не оставляет модель в состоянии «готова».
+- [ ] Не заявляет автоматический downloader, checksum или provisioning; модель настраивается вручную по официальной инструкции.
 
 ### Story 2 — Настройка станции
 
@@ -346,7 +345,7 @@ Stable Audio code и model weights имеют разные условия. Дл�
 - [ ] Между треками выполняется плавный переход без слышимой тишины.
 - [ ] При пустом ready buffer выбирается существующий совместимый трек.
 - [ ] Повтор разрешён при высокой нагрузке, ошибке или выключенной генерации.
-- [ ] 10-часовой soak test проходит без buffer underrun.
+- [ ] Короткие smoke/runtime checks проходят без buffer underrun.
 
 ### Story 4 — Изменение станции во время сессии
 
@@ -472,7 +471,7 @@ Future candidates: влияние лайков на генерацию, presets 
 
 ### Dependencies
 
-- Apple Developer account, signing certificate и notarization pipeline.
+- GitHub Actions для публикации unsigned zip artifact при push/tag (retention 14 days).
 - Доступный и юридически корректный способ загрузки model weights.
 - Stable Audio 3 Small Core ML/MLX runtime.
 - ACE-Step 1.5 runtime для необязательного quality tier.
@@ -492,7 +491,7 @@ Future candidates: влияние лайков на генерацию, presets 
 | WAV быстро заполняет диск | Usability | Storage dashboard, user limit, cleanup unliked, benchmark M4A archive format |
 | Bulk cleanup удаляет нужную музыку | Usability | Лайк-защита, preview count/size, подтверждение, запрет удаления current/ready; решить undo/recovery до релиза |
 | Crossfade создаёт музыкально плохие швы | Quality | Equal-power crossfade baseline, loudness normalization, genre-specific duration; beatmatching оставить вне MVP |
-| Генерация вызывает перегрев и мешает работе | Feasibility | Одна job, thermal/memory gates, collection fallback, длительный resource benchmark |
+| Генерация вызывает перегрев и мешает работе | Feasibility | Одна job, thermal/memory gates, collection fallback, короткие resource checks |
 | Crash report раскрывает локальные данные | Privacy | Opt-in, allowlist полей, path/prompt redaction, тест payload перед включением provider |
 | Название Flowtone конфликтует с товарным знаком | Legal | Проверка App Store, доменов и товарных знаков до публичного брендинга |
 | Обновление модели меняет качество или ломает старые настройки | Maintainability | Хранить model/version/seed в metadata; versioned adapters; не обновлять веса молча |
@@ -503,11 +502,10 @@ Future candidates: влияние лайков на генерацию, presets 
 
 | Вопрос | Owner | Deadline | Статус |
 |---|---|---|---|
-| Какая open-source лицензия используется: MIT, Apache-2.0, GPLv3 или другая? | Владелец продукта | До public release | Open |
+| Какая open-source лицензия используется? | Владелец продукта | До public release | Решено: MIT |
 | Какова минимальная версия macOS? | Engineering | После engine spike | Open |
 | Реально ли поддержать Stable Audio 3 Small на M1/8 ГБ рядом с рабочей нагрузкой? | Engineering | До MVP implementation | Open |
-| Как проходит легальная загрузка gated Stable Audio weights без встроенного токена? | Engineering/Legal | До Model Manager | Open |
-| Проходит ли ACE-Step 1.5 длительный MLX soak test на 24–32 ГБ Mac? | Engineering | До включения Quality tier | Open |
+| Как вручную настроить gated model weights по официальным terms? | Engineering/Legal | До Model Manager | Open |
 | Какой внутренний формат: WAV или M4A, и какой default storage limit? | Product/Engineering | После storage benchmark | Open |
 | Нужны ли Trash/Undo/Recently Deleted для массовой очистки? | Product | До Library implementation | Open |
 | Какой crash-reporting provider использовать? | Maintainer | До public beta | Open |
@@ -531,7 +529,7 @@ Future candidates: влияние лайков на генерацию, presets 
 
 - SwiftUI shell, station config, player, current + 2 ready buffer.
 - Stable Audio adapter, serial scheduler, resource monitor.
-- Fallback на существующие файлы и 10-часовой soak test.
+- Fallback на существующие файлы и короткие runtime checks.
 
 ### Slice 2 — Library
 
@@ -541,9 +539,9 @@ Future candidates: влияние лайков на генерацию, presets 
 
 ### Slice 3 — Public Beta
 
-- Model Manager с terms/checksum/resume.
+- Manual model setup с официальными terms и локальной отметкой чтения; без автоматического downloader/checksum/provisioning.
 - Opt-in crash reporting и privacy review.
-- Signing, notarization, `.dmg`, GitHub Release.
+- Unsigned `Flowtone.app.zip` как GitHub Actions artifact при push/tag (retention 14 days); предупредить о Gatekeeper.
 - Discovery interviews и наблюдаемые 60-минутные sessions.
 
 ---
@@ -566,7 +564,7 @@ Problem validation and product targets: пока есть только личн�
 | 2 | Stable Audio 3 Small работает комфортно на M1/8 ГБ | Заявленный minimum hardware неверен | Benchmark рядом с типичной рабочей нагрузкой |
 | 3 | Качества хватает для 60 минут концентрации | Пользователь уйдёт к стримингу | Слепые 60-минутные listening sessions |
 | 4 | M4A archive приемлем и заметно снижает storage cost | Либо плохое качество, либо быстрый рост диска | A/B listening + encode/load benchmark |
-| 5 | Heavy tier полезен и стабилен на 24–32 ГБ | Лишняя сложность Model Manager и support | ACE-Step soak test до включения в beta |
+| 5 | Heavy tier полезен и стабилен на 24–32 ГБ | Лишняя сложность Model Manager и support | Короткая ACE-Step runtime проверка до включения в beta |
 
 ### Recommended Next Step
 

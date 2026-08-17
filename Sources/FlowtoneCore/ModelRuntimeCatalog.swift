@@ -9,6 +9,9 @@ public struct ModelRuntimeCatalog: Sendable {
 
   public static let stableAudioExecutableName = "stable-audio-mlx"
 
+  public static let stableAudioRuntimeRelativePath =
+    "Library/Application Support/Flowtone/\(stableAudioExecutableName)"
+
   public static var defaultApplicationSupportRoot: URL {
     FileManager.default.urls(
       for: .applicationSupportDirectory,
@@ -26,12 +29,25 @@ public struct ModelRuntimeCatalog: Sendable {
     applicationSupportRoot.appendingPathComponent(Self.stableAudioExecutableName)
   }
 
+  public var stableAudioRuntimePath: String {
+    stableAudioExecutableURL.path
+  }
+
+  public var hasStableAudioExecutable: Bool {
+    var isDirectory: ObjCBool = false
+    let path = stableAudioExecutableURL.path
+    let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
+
+    return exists && !isDirectory.boolValue && FileManager.default.isExecutableFile(atPath: path)
+  }
+
   public func availability(for tier: ModelTier) -> Availability {
     switch tier {
     case .light:
       return hasStableAudioExecutable
         ? .available
-        : .unavailable(reason: "Stable Audio 3 не установлен в приложении.")
+        : .unavailable(
+          reason: "Исполняемый модуль Stable Audio 3 не найден по пути \(stableAudioRuntimePath).")
     case .quality:
       return .unsupported(
         reason: "Качественный tier недоступен: адаптер ACE-Step ещё не поддерживается.")
@@ -44,13 +60,5 @@ public struct ModelRuntimeCatalog: Sendable {
     }
 
     return StableAudioMLXEngine(executableURL: stableAudioExecutableURL)
-  }
-
-  private var hasStableAudioExecutable: Bool {
-    var isDirectory: ObjCBool = false
-    let path = stableAudioExecutableURL.path
-    let exists = FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory)
-
-    return exists && !isDirectory.boolValue && FileManager.default.isExecutableFile(atPath: path)
   }
 }

@@ -21,7 +21,7 @@ Flowtone — бесплатное приложение для macOS с откр�
 - 20 жанров и изменение настроек во время сессии;
 - автоматическое обнаружение установленного Stable Audio runtime;
 - выбранная владельцем тёплая retro-иконка с пластинкой;
-- unsigned `.app` packager с нативной `.icns`, macOS CI, CLI spike и unit tests.
+- MIT-лицензия исходного кода, unsigned `.app` packager, macOS CI и скачиваемый Actions artifact.
 
 Настоящие model weights в репозиторий не входят и в текущем milestone не загружались.
 
@@ -38,13 +38,11 @@ Flowtone — бесплатное приложение для macOS с откр�
 - Непрерывное воспроизведение важнее обязательной уникальности каждого трека.
 - Приоритет низкой средней нагрузки и предсказуемой работы системы.
 
-## Что ещё блокирует публичную сборку
+## Что ещё нужно для model-enabled generation
 
-1. Запустить Stable Audio 3 Small benchmark после принятия model terms.
-2. Добавить model downloader, checksum и явный license gate.
-3. Реализовать и проверить ACE-Step adapter для quality tier.
-4. Выбрать лицензию исходного кода.
-5. Подписать, notarize и выпустить `.dmg`.
+1. Принять model/Gemma terms, вручную установить Stable Audio 3 и запустить benchmark.
+2. Реализовать и проверить ACE-Step adapter для quality tier.
+3. Signing/notarization не входят в scope текущего unsigned Actions artifact и потребуют отдельного решения владельца.
 
 ## Быстрый старт для разработки
 
@@ -66,4 +64,10 @@ Stable Audio описано в [implementation guide](docs/IMPLEMENTATION.md).
 
 ## Лицензирование
 
-Лицензия исходного кода пока не выбрана. Веса моделей распространяются на собственных условиях и не становятся open source автоматически вместе с кодом Flowtone.
+Исходный код Flowtone распространяется по [MIT License](LICENSE). Model weights и условия Stable Audio 3 не входят в MIT и остаются на условиях правообладателей.
+
+## Unsigned macOS artifact
+
+Каждый `push`, включая tag push, создаёт в GitHub Actions artifact `flowtone-unsigned-macos-app-<commit SHA>` на 14 дней. Artifact содержит `Flowtone-unsigned-macos.app.zip`; ZIP создан через `ditto --keepParent`, поэтому сохраняет macOS app bundle. GitHub Release не создаётся.
+
+Bundle не подписан и не notarized. macOS может потребовать явного подтверждения пользователя при первом запуске. Не скачивайте `.app` или ZIP из непроверенных источников.

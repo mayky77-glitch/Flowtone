@@ -12,8 +12,12 @@ import Testing
 
     #expect(
       catalog.availability(for: .light)
-        == .unavailable(reason: "Stable Audio 3 не установлен в приложении."))
+        == .unavailable(
+          reason:
+            "Исполняемый модуль Stable Audio 3 не найден по пути \(stableAudioRuntimePath(root)).")
+    )
     #expect(catalog.stableAudioEngine() == nil)
+    #expect(!catalog.hasStableAudioExecutable)
   }
 
   @Test func lightTierUsesInstalledExecutable() throws {
@@ -30,6 +34,7 @@ import Testing
 
     #expect(catalog.availability(for: .light) == .available)
     #expect(catalog.stableAudioEngine()?.executableURL == executableURL)
+    #expect(catalog.hasStableAudioExecutable)
   }
 
   @Test func lightTierRejectsNonExecutableRuntime() throws {
@@ -46,8 +51,12 @@ import Testing
 
     #expect(
       catalog.availability(for: .light)
-        == .unavailable(reason: "Stable Audio 3 не установлен в приложении."))
+        == .unavailable(
+          reason:
+            "Исполняемый модуль Stable Audio 3 не найден по пути \(stableAudioRuntimePath(root)).")
+    )
     #expect(catalog.stableAudioEngine() == nil)
+    #expect(!catalog.hasStableAudioExecutable)
   }
 
   @Test func qualityTierIsExplicitlyUnsupported() throws {
@@ -68,5 +77,9 @@ import Testing
       .appendingPathComponent(UUID().uuidString, isDirectory: true)
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     return root
+  }
+
+  private func stableAudioRuntimePath(_ root: URL) -> String {
+    root.appendingPathComponent(ModelRuntimeCatalog.stableAudioExecutableName).path
   }
 }

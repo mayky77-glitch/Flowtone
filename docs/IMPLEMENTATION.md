@@ -67,20 +67,20 @@ SwiftUI-таймер только вызывает наблюдение за ren
 
 Flowtone следует официальному [`optimized/mlx`](https://github.com/Stability-AI/stable-audio-3/tree/main/optimized/mlx) runtime. Adapter запускает executable напрямую через `Process`; prompt не передаётся shell и не интерполируется.
 
-Перед загрузкой:
+Перед ручной установкой:
 
-1. Прочитайте [Stable Audio Community License](https://stability.ai/license).
-2. Убедитесь, что условия подходят вашему использованию.
-3. Примите необходимые gated model terms на Hugging Face.
+1. Откройте [Stable Audio 3 Small-Music на Hugging Face](https://huggingface.co/stabilityai/stable-audio-3-small-music), войдите в свой аккаунт и сами примите gated model/Gemma terms.
+2. Прочитайте [Stable Audio Community License](https://stability.ai/license) и убедитесь, что условия подходят вашему использованию.
+3. Откройте официальный [Stable Audio 3 repository](https://github.com/Stability-AI/stable-audio-3) и его [MLX instructions](https://github.com/Stability-AI/stable-audio-3/tree/main/optimized/mlx). Следуйте им вручную в отдельной от Flowtone директории.
 
-Установка runtime выполняется вне Flowtone repository, чтобы веса и Python environment не попали в Git:
+В приложении есть локальная отметка о том, что пользователь лично открыл и прочитал официальные страницы. Она записывается только локально и не означает принятие Flowtone внешних Hugging Face, Stability или Gemma terms, не предоставляет доступ к gated model и не заменяет действия пользователя на соответствующих сервисах.
+
+Не запускайте автоматическую установку из Flowtone: приложение и этот repository не скачивают веса, не принимают внешние terms и не выполняют `curl | bash`. Нет automatic downloader, checksum/provisioning или bundled weights. После ручной установки скопируйте или создайте symlink официального `./sa3` wrapper в фиксированном пути Flowtone:
 
 ```bash
-mkdir -p Models
-git clone https://github.com/Stability-AI/stable-audio-3.git Models/stable-audio-3
-cd Models/stable-audio-3/optimized/mlx
-./install.sh
-cd -
+mkdir -p "$HOME/Library/Application Support/Flowtone"
+ln -s "/absolute/path/to/stable-audio-3/optimized/mlx/sa3" \
+  "$HOME/Library/Application Support/Flowtone/stable-audio-mlx"
 ```
 
 После установки:
@@ -95,14 +95,23 @@ swift run flowtone-spike \
   --vibe "rain outside"
 ```
 
-Чтобы SwiftUI-приложение обнаружило runtime, создайте исполняемый файл или симлинк по фиксированному
-локальному пути (веса в репозиторий не копируются):
+## Reproducible Stable Audio benchmark
+
+После ручной установки запустите harness. Он не скачивает weights и не меняет runtime. Runtime запускается с `HF_HUB_OFFLINE=1` и `TRANSFORMERS_OFFLINE=1`, поэтому missing cached weights должны завершить run ошибкой, а не вызвать network provisioning. По умолчанию harness использует `~/Library/Application Support/Flowtone/stable-audio-mlx`, фиксированные prompt, negative prompt, 30 seconds, seed `424242`, MLX model flags `--dit sm-music --decoder same-s` и `--steps 8`.
 
 ```bash
-mkdir -p "$HOME/Library/Application Support/Flowtone"
-ln -s "/absolute/path/to/stable-audio-3/optimized/mlx/sa3" \
-  "$HOME/Library/Application Support/Flowtone/stable-audio-mlx"
+scripts/benchmark-stable-audio.sh
 ```
+
+По умолчанию WAV записывается в `${TMPDIR:-/tmp}/flowtone-stable-audio-benchmark.wav`; script не перезаписывает существующий файл. Для другой runtime или output path:
+
+```bash
+scripts/benchmark-stable-audio.sh \
+  --executable "/absolute/path/to/stable-audio-3/optimized/mlx/sa3" \
+  --output /tmp/flowtone-stable-audio-benchmark-run-1.wav
+```
+
+Успех печатается одной стабильной machine-readable строкой с `status=passed`, seed, requested seconds, wall time, размером и output path. Script проверяет executable до запуска и nonempty WAV после него. Сравнивайте runs на одинаковой версии runtime, macOS, питании и свободной памяти; benchmark пока не устанавливает production performance target.
 
 Release-приложение не включает synthetic fallback. Если executable отсутствует или не имеет права
 на запуск, интерфейс честно показывает, что Stable Audio 3 не установлена, и продолжает играть
@@ -120,17 +129,16 @@ sa3 --prompt <prompt> --negative-prompt <negative> \
 
 - Полный Xcode не установлен; SwiftPM build/test работает через Command Line Tools.
 - Настоящие model weights ещё не загружены и benchmark не запускался.
-- Нет model downloader, license acceptance UI и checksum verification.
+- Есть локальная UI-отметка о личном прочтении официальных страниц; она не принимает external terms и не даёт доступ к gated weights. Нет automatic downloader, checksum/provisioning или bundled weights.
 - ACE-Step quality adapter ещё не реализован.
-- Скрипт создаёт рабочий, но неподписанный `.app`; notarized `.dmg` требует Apple Developer credentials.
+- Скрипт создаёт рабочий, но неподписанный `.app`. Signing/notarization намеренно вне scope repository Actions artifact и требуют отдельного решения владельца и credentials.
 - Системная memory-pressure защита подключена через `DispatchSource`; её пороги остаются системными.
 
 ## Next implementation slice
 
-1. Воспроизводимый Stable Audio benchmark: 5/30/120 секунд, wall time, peak RSS, thermal state.
-2. Model downloader, installation state, checksum и явный license gate.
-3. Системный memory-pressure monitor и длительный 10-часовой soak test.
-4. Подписанный/notarized `.dmg` после выбора source license и получения credentials.
+1. Запустить один воспроизводимый Stable Audio benchmark после ручного принятия model/Gemma terms.
+2. Проверить ACE-Step adapter для quality tier.
+3. Signing/notarization остаются вне scope unsigned repository artifact; рассмотреть их только после отдельного решения владельца и получения credentials.
 
 ## Unsigned app bundle
 
@@ -140,3 +148,5 @@ open /tmp/flowtone-package/Flowtone.app
 ```
 
 Скрипт отказывается перезаписывать существующий bundle, включает `Assets/AppIcon.icns` и не выполняет signing или notarization.
+
+При `push` (включая tag) macOS CI упаковывает тот же bundle в `Flowtone-unsigned-macos.app.zip` c `ditto --keepParent` и сохраняет его как временный GitHub Actions artifact. Ни `.app`, ни ZIP в Git не коммитятся; GitHub Release не создаётся.

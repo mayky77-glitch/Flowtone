@@ -10,7 +10,7 @@ const { spawn } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const { TrackLibrary } = require('./library.cjs');
 const { GENRES, GENRE_LABELS, composePrompt, createStationConfiguration } = require('./core.cjs');
-const { StableAudioRuntime, basicHardwareProfile } = require('./runtime.cjs');
+const { MODEL_PROFILES, StableAudioRuntime, basicHardwareProfile } = require('./runtime.cjs');
 
 app.setName('Flowtone');
 if (!app.isPackaged && process.env.FLOWTONE_USER_DATA) {
@@ -229,9 +229,12 @@ async function createTrack(rawSettings) {
     seed: station.seed,
     outputPath,
   });
+  const activeProfile = runtimeStatus.models.find((model) => model.id === runtimeStatus.connectedModel);
   const track = await library.importGeneratedAudio(outputPath, station, {
     durationSeconds: 120,
-    engineID: `stable-audio-3-tflite-${runtimeStatus.connectedModel}`,
+    engineID: activeProfile?.family === 'ace-step'
+      ? `ace-step-1.5-${runtimeStatus.connectedModel}`
+      : `stable-audio-3-tflite-${runtimeStatus.connectedModel}`,
     isTransient: settings.storageMode === 'live',
   });
   return { track, station, runtime: await runtime.status(settings.modelPreference), ...librarySnapshot() };
@@ -316,7 +319,7 @@ function sanitizeSettings(value) {
     mood: ['focused', 'warm', 'dreamy', 'dark', 'uplifting'].includes(value.mood) ? value.mood : 'focused',
     vibe: String(value.vibe || '').replace(/[\r\n\t]+/g, ' ').slice(0, 180),
     generationEnabled: value.generationEnabled !== false,
-    modelPreference: ['auto', 'small-efficient', 'small-quality', 'medium-balanced', 'medium-max'].includes(value.modelPreference)
+    modelPreference: ['auto', ...Object.keys(MODEL_PROFILES)].includes(value.modelPreference)
       ? value.modelPreference : 'auto',
     volume: Math.min(Math.max(Number(value.volume) || 0, 0), 1),
     storageLimitGiB: Math.min(Math.max(Math.round(Number(value.storageLimitGiB) || 5), 1), 500),

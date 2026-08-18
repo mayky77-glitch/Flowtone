@@ -56,8 +56,14 @@ final class FlowtoneAppModel: ObservableObject {
     "Cyberpunk": "Киберпанк",
   ]
 
-  @Published var selectedGenres: Set<String> = ["Ambient", "Lo-fi"]
-  @Published var mixGenresEnabled = false
+  @Published var selectedGenres: Set<String> = ["Ambient", "Lo-fi"] {
+    didSet {
+      UserDefaults.standard.set(selectedGenres.sorted(), forKey: Self.selectedGenresKey)
+    }
+  }
+  @Published var mixGenresEnabled = false {
+    didSet { UserDefaults.standard.set(mixGenresEnabled, forKey: Self.mixGenresKey) }
+  }
   @Published var storageMode: RadioStorageMode {
     didSet {
       UserDefaults.standard.set(storageMode.rawValue, forKey: Self.storageModeKey)
@@ -67,19 +73,27 @@ final class FlowtoneAppModel: ObservableObject {
   @Published var shuffleEnabled: Bool {
     didSet { UserDefaults.standard.set(shuffleEnabled, forKey: Self.shuffleKey) }
   }
-  @Published var energy: EnergyLevel = .calm
-  @Published var mood: StationMood = .focused
-  @Published var vibe = ""
+  @Published var energy: EnergyLevel = .calm {
+    didSet { UserDefaults.standard.set(energy.rawValue, forKey: Self.energyKey) }
+  }
+  @Published var mood: StationMood = .focused {
+    didSet { UserDefaults.standard.set(mood.rawValue, forKey: Self.moodKey) }
+  }
+  @Published var vibe = "" {
+    didSet { UserDefaults.standard.set(String(vibe.prefix(180)), forKey: Self.vibeKey) }
+  }
   @Published var generationEnabled = true {
     didSet {
+      UserDefaults.standard.set(generationEnabled, forKey: Self.generationEnabledKey)
       Task { await scheduler.setGenerationEnabled(generationEnabled) }
       if !generationEnabled {
         statusText = "Генерация выключена · станция играет коллекцию"
       }
     }
   }
-  @Published var selectedModelTier: ModelTier {
+  @Published var modelPreference: ModelPreference {
     didSet {
+      UserDefaults.standard.set(modelPreference.rawValue, forKey: Self.modelPreferenceKey)
       generationRuntimeReady = false
       modelRuntimeStatusText = "Переключаю локальный движок…"
       Task { await configureGenerationRuntime() }
@@ -108,6 +122,10 @@ final class FlowtoneAppModel: ObservableObject {
   @Published private(set) var isInstallingStableAudio = false
   @Published private(set) var stableAudioInstallationProgress: StableAudioInstallationProgress?
   @Published private(set) var stableAudioInstallationErrorText: String?
+  @Published private(set) var installedModelIDs: Set<MusicModelID> = []
+  @Published private(set) var activeModelID: MusicModelID?
+  @Published private(set) var installingModelID: MusicModelID?
+  @Published private(set) var isRemovingStableAudio = false
   @Published private(set) var isUsingDevelopmentAudio = false
   @Published private(set) var playbackPositionSeconds: TimeInterval = 0
   @Published private(set) var playbackDurationSeconds: TimeInterval = 0
@@ -120,6 +138,13 @@ final class FlowtoneAppModel: ObservableObject {
   private static let storageLimitKey = "Flowtone.storageLimitGiB"
   private static let storageModeKey = "Flowtone.storageMode"
   private static let shuffleKey = "Flowtone.shuffleEnabled"
+  private static let modelPreferenceKey = "Flowtone.modelPreference"
+  private static let selectedGenresKey = "Flowtone.selectedGenres"
+  private static let mixGenresKey = "Flowtone.mixGenresEnabled"
+  private static let energyKey = "Flowtone.energy"
+  private static let moodKey = "Flowtone.mood"
+  private static let vibeKey = "Flowtone.vibe"
+  private static let generationEnabledKey = "Flowtone.generationEnabled"
   private static let requestedCrossfadeSeconds: TimeInterval = 6
   private static let generatedTrackDurationSeconds = RadioGenerationPolicy.trackDurationSeconds
   private static let estimatedTrackByteSize: Int64 =
@@ -134,6 +159,7 @@ final class FlowtoneAppModel: ObservableObject {
   private let scheduler: GenerationScheduler
   private let modelCatalog = ModelRuntimeCatalog()
   private let stableAudioInstaller = StableAudioInstaller()
+  private let aceStepInstaller = ACEStepInstaller()
   private let licenseAcknowledgement: ModelLicenseAcknowledgement
   private let crossfade = EqualPowerCrossfade()
   private var playbackQueue = RadioPlaybackQueue()
@@ -142,7 +168,7 @@ final class FlowtoneAppModel: ObservableObject {
   private var playbackHistory: [UUID] = []
   private var playbackHistoryIndex: Int?
   private var memoryPressureObservationID: UUID?
-  private var stableAudioInstallationTask: Task<Void, Never>?
+  private var modelInstallationTask: Task<Void, Never>?
 
   private lazy var playbackController: AudioPlaybackController = {
     let curve = EqualPowerCrossfade()
@@ -166,6 +192,24 @@ final class FlowtoneAppModel: ObservableObject {
   }()
 
   init() {
+    let savedGenres = UserDefaults.standard.stringArray(forKey: Self.selectedGenresKey) ?? []
+    let validSavedGenres = savedGenres.filter(Self.availableGenres.contains)
+    if !validSavedGenres.isEmpty
+      || UserDefaults.standard.object(forKey: Self.selectedGenresKey) != nil
+    {
+      selectedGenres = Set(validSavedGenres)
+    }
+    mixGenresEnabled = UserDefaults.standard.object(forKey: Self.mixGenresKey) as? Bool ?? false
+    if validSavedGenres.count == 1 { mixGenresEnabled = false }
+    energy =
+      UserDefaults.standard.string(forKey: Self.energyKey)
+      .flatMap(EnergyLevel.init(rawValue:)) ?? .calm
+    mood =
+      UserDefaults.standard.string(forKey: Self.moodKey)
+      .flatMap(StationMood.init(rawValue:)) ?? .focused
+    vibe = String((UserDefaults.standard.string(forKey: Self.vibeKey) ?? "").prefix(180))
+    generationEnabled =
+      UserDefaults.standard.object(forKey: Self.generationEnabledKey) as? Bool ?? true
     storageMode =
       UserDefaults.standard.string(forKey: Self.storageModeKey)
       .flatMap(RadioStorageMode.init(rawValue:)) ?? .recording
@@ -173,7 +217,9 @@ final class FlowtoneAppModel: ObservableObject {
       UserDefaults.standard.object(forKey: Self.shuffleKey) as? Bool ?? true
     let support = ModelRecommender().recommendation(for: .current)
     hardwareSupport = support
-    selectedModelTier = .light
+    modelPreference =
+      UserDefaults.standard.string(forKey: Self.modelPreferenceKey)
+      .flatMap(ModelPreference.init(rawValue:)) ?? .automatic
     let savedStorageLimit = UserDefaults.standard.object(forKey: Self.storageLimitKey) as? Int
     storageLimitGiB = max(1, savedStorageLimit ?? 5)
     licenseAcknowledgement = ModelLicenseAcknowledgement()
@@ -194,7 +240,7 @@ final class FlowtoneAppModel: ObservableObject {
   }
 
   deinit {
-    stableAudioInstallationTask?.cancel()
+    modelInstallationTask?.cancel()
     if let memoryPressureObservationID {
       SystemMemoryPressureMonitor.shared.removeObservation(memoryPressureObservationID)
     }
@@ -212,7 +258,23 @@ final class FlowtoneAppModel: ObservableObject {
     }
   }
 
-  var selectedModelText: String { modelName(for: selectedModelTier) }
+  var recommendedModelTier: ModelTier {
+    guard case .supported(let recommended, _) = hardwareSupport else { return .light }
+    return recommended
+  }
+
+  var recommendedModelID: MusicModelID {
+    recommendedModelTier == .light ? .stableSmall : .stableMedium
+  }
+
+  var requestedModelID: MusicModelID {
+    modelPreference.requestedModelID ?? recommendedModelID
+  }
+
+  var selectedModelText: String {
+    let name = modelName(for: activeModelID ?? requestedModelID)
+    return modelPreference == .automatic ? "Авто · \(name)" : name
+  }
 
   var canGenerateTrack: Bool { generationEnabled && generationRuntimeReady && !isStoragePaused }
 
@@ -228,8 +290,10 @@ final class FlowtoneAppModel: ObservableObject {
 
   var stableAudioRuntimePath: String { modelCatalog.stableAudioRuntimePath }
 
+  var modelRuntimePaths: String { modelCatalog.modelRuntimePaths }
+
   var stableAudioInstallationIsComplete: Bool {
-    stableAudioInstaller.manifest.isComplete()
+    installedModelIDs.contains(requestedModelID)
   }
 
   var stableAudioInstallationFraction: Double {
@@ -241,8 +305,9 @@ final class FlowtoneAppModel: ObservableObject {
   }
 
   var stableAudioInstallationDetail: String {
-    stableAudioInstallationProgress?.detail
-      ?? "Flowtone скачает только лёгкую музыкальную модель и подключит её автоматически."
+    let profile = MusicModelProfile.profile(for: installingModelID ?? requestedModelID)
+    return stableAudioInstallationProgress?.detail
+      ?? "Flowtone скачает \(profile.title) и подключит её автоматически."
   }
 
   var stableAudioTermsAcknowledgementText: String {
@@ -256,8 +321,9 @@ final class FlowtoneAppModel: ObservableObject {
   }
 
   var selectedModelWarning: String? {
-    guard selectedModelTier == .quality, hardware.memoryGiB < 24 else { return nil }
-    return "На этом Mac тяжёлая модель может сильно нагружать систему."
+    let profile = MusicModelProfile.profile(for: requestedModelID)
+    guard hardware.memoryGiB < profile.minimumMemoryGiB else { return nil }
+    return "Для этой модели рекомендуется от \(profile.minimumMemoryGiB) ГБ памяти."
   }
 
   var primaryGenre: String {
@@ -375,7 +441,23 @@ final class FlowtoneAppModel: ObservableObject {
     Task { await configureGenerationRuntime() }
   }
 
-  func installStableAudioModel() {
+  func isModelInstalled(_ modelID: MusicModelID) -> Bool {
+    installedModelIDs.contains(modelID)
+  }
+
+  func isModelRecommended(_ modelID: MusicModelID) -> Bool {
+    recommendedModelID == modelID
+  }
+
+  func selectModel(_ modelID: MusicModelID) {
+    modelPreference = ModelPreference(modelID: modelID)
+  }
+
+  func useAutomaticModelSelection() {
+    modelPreference = .automatic
+  }
+
+  func installModel(_ modelID: MusicModelID = .stableSmall) {
     guard hasAcknowledgedStableAudioTerms else {
       stableAudioInstallationErrorText =
         "Сначала откройте официальные страницы и подтвердите, что прочитали условия."
@@ -384,34 +466,75 @@ final class FlowtoneAppModel: ObservableObject {
     guard !isInstallingStableAudio else { return }
     stableAudioInstallationErrorText = nil
     isInstallingStableAudio = true
+    installingModelID = modelID
+    stableAudioInstallationProgress = nil
 
-    stableAudioInstallationTask = Task { [weak self] in
+    modelInstallationTask = Task { [weak self] in
       guard let self else { return }
       do {
-        try await stableAudioInstaller.install { [weak self] progress in
+        let updateProgress: @Sendable (StableAudioInstallationProgress) async -> Void = {
+          [weak self] progress in
           await MainActor.run {
             self?.stableAudioInstallationProgress = progress
             self?.modelRuntimeStatusText = progress.title
           }
         }
+        if let tier = modelID.stableAudioTier {
+          try await stableAudioInstaller.install(tier: tier, progress: updateProgress)
+        } else {
+          try await aceStepInstaller.install(modelID: modelID, progress: updateProgress)
+        }
+        installedModelIDs = modelCatalog.installedModelIDs
+        modelPreference = ModelPreference(modelID: modelID)
         await configureGenerationRuntime()
         isInstallingStableAudio = false
-        statusText = "Stable Audio 3 установлена · можно запускать эфир"
+        installingModelID = nil
+        statusText = "\(modelName(for: modelID)) установлена и подключена"
       } catch is CancellationError {
         isInstallingStableAudio = false
+        installingModelID = nil
         stableAudioInstallationProgress = nil
         modelRuntimeStatusText = "Установка отменена · уже загруженные веса можно продолжить позже"
       } catch {
         isInstallingStableAudio = false
+        installingModelID = nil
         stableAudioInstallationErrorText = error.localizedDescription
         modelRuntimeStatusText = "Модель пока не установлена"
       }
-      stableAudioInstallationTask = nil
+      modelInstallationTask = nil
     }
   }
 
   func cancelStableAudioInstallation() {
-    stableAudioInstallationTask?.cancel()
+    modelInstallationTask?.cancel()
+  }
+
+  func removeModel(_ modelID: MusicModelID) {
+    guard !isInstallingStableAudio, !isRemovingStableAudio else { return }
+    isRemovingStableAudio = true
+    stableAudioInstallationErrorText = nil
+    Task { [weak self] in
+      guard let self else { return }
+      if activeModelID == modelID {
+        await scheduler.cancelActiveGeneration(reason: "Модель удаляется с устройства.")
+      }
+      do {
+        if let tier = modelID.stableAudioTier {
+          try stableAudioInstaller.remove(tier: tier)
+        } else {
+          try aceStepInstaller.remove(modelID: modelID)
+        }
+        if modelPreference.requestedModelID == modelID {
+          modelPreference = .automatic
+        }
+        await configureGenerationRuntime()
+        statusText = "\(modelName(for: modelID)) удалена · локальные треки сохранены"
+      } catch {
+        stableAudioInstallationErrorText = error.localizedDescription
+        modelRuntimeStatusText = "Не удалось удалить модель"
+      }
+      isRemovingStableAudio = false
+    }
   }
 
   func skipTrack() {
@@ -997,23 +1120,19 @@ final class FlowtoneAppModel: ObservableObject {
     return GenreMixPlanner().mix(from: genres, seed: seed)
   }
 
-  private func modelName(for tier: ModelTier) -> String {
-    tier == .quality
-      ? "Качество · ACE-Step (не подключён)"
-      : "Лёгкая · Stable Audio 3 Small"
+  func modelName(for tier: ModelTier) -> String {
+    StableAudioModelProfile.profile(for: tier).title
+  }
+
+  func modelName(for modelID: MusicModelID) -> String {
+    MusicModelProfile.profile(for: modelID).title
   }
 
   private func configureGenerationRuntime() async {
-    let requestedTier = selectedModelTier
+    installedModelIDs = modelCatalog.installedModelIDs
+    let requestedID = resolvedInstalledModelID()
     isUsingDevelopmentAudio = false
-
-    guard requestedTier == .light else {
-      generationRuntimeReady = false
-      if case .unsupported(let reason) = modelCatalog.availability(for: requestedTier) {
-        modelRuntimeStatusText = reason
-      }
-      return
-    }
+    activeModelID = nil
 
     guard hasAcknowledgedStableAudioTerms else {
       await configureUnavailableStableAudioRuntime(
@@ -1021,17 +1140,29 @@ final class FlowtoneAppModel: ObservableObject {
       return
     }
 
-    switch modelCatalog.availability(for: requestedTier) {
+    guard let requestedID else {
+      await configureUnavailableStableAudioRuntime(
+        reason: "Подходящая модель не установлена. Откройте «Модели», чтобы скачать её."
+      )
+      return
+    }
+
+    switch modelCatalog.availability(for: requestedID) {
     case .available:
-      guard let engine = modelCatalog.stableAudioEngine() else {
+      guard let engine = modelCatalog.engine(for: requestedID) else {
         generationRuntimeReady = false
-        modelRuntimeStatusText = "Локальный движок Stable Audio не удалось открыть"
+        modelRuntimeStatusText = "Локальный музыкальный движок не удалось открыть"
         return
       }
       await scheduler.replaceEngine(engine)
-      guard selectedModelTier == requestedTier else { return }
+      guard resolvedInstalledModelID() == requestedID else { return }
+      activeModelID = requestedID
       generationRuntimeReady = true
-      modelRuntimeStatusText = "Stable Audio 3 Small готова · генерация на этом Mac"
+      let fallback = requestedID != self.requestedModelID
+      modelRuntimeStatusText =
+        fallback
+        ? "\(modelName(for: requestedID)) подключена вместо пока не установленной выбранной модели"
+        : "\(modelName(for: requestedID)) готова · генерация на этом Mac"
     case .unavailable(let reason):
       await configureUnavailableStableAudioRuntime(reason: reason)
     case .unsupported(let reason):
@@ -1043,7 +1174,6 @@ final class FlowtoneAppModel: ObservableObject {
   private func configureUnavailableStableAudioRuntime(reason: String) async {
     if Self.developmentAudioEnabled {
       await scheduler.replaceEngine(SyntheticAudioEngine())
-      guard selectedModelTier == .light else { return }
       isUsingDevelopmentAudio = true
       generationRuntimeReady = true
       modelRuntimeStatusText = "Режим разработки: синтетический звук, не Stable Audio. \(reason)"
@@ -1051,6 +1181,13 @@ final class FlowtoneAppModel: ObservableObject {
       generationRuntimeReady = false
       modelRuntimeStatusText = reason
     }
+  }
+
+  private func resolvedInstalledModelID() -> MusicModelID? {
+    let preferred = requestedModelID
+    if installedModelIDs.contains(preferred) { return preferred }
+    if installedModelIDs.contains(recommendedModelID) { return recommendedModelID }
+    return MusicModelID.allCases.first(where: installedModelIDs.contains)
   }
 
   private func handleMemoryPressure(_ pressure: MemoryPressure) async {

@@ -237,10 +237,11 @@ Metadata contract реализован как `library-v1.json`; переход 
 
 - Определяет hardware class и рекомендует engine.
 - Показывает размер, требования, лицензию и ожидаемую нагрузку.
-- После личного подтверждения чтения official terms автоматически скачивает только зафиксированный Stable Audio 3 Small MLX stack, проверяет source/uv archives по SHA-256 и устанавливает его в Application Support.
+- После личного подтверждения чтения official terms скачивает выбранный закреплённый Stable Audio MLX или ACE-Step runtime, проверяет source/uv archives по SHA-256 и устанавливает его в Application Support.
 - Не хранит пользовательский токен и не выполняет `curl | bash`; optimized weights скачиваются официальным runtime из публичного Stability AI repository.
-- Проверяет наличие Python/MLX environment, четырёх Small-Music weight files и исполняемого light runtime по фиксированному локальному пути; затем generation запускается строго offline.
-- Quality tier честно показывает отсутствие ACE-Step adapter и не запускает скрытую установку.
+- Проверяет полноту выбранного профиля и подключает его автоматически; Stable Audio после установки запускается строго offline, ACE-Step работает через локальный helper API без внешнего сервера.
+- Делит каталог на компактные, сбалансированные и мощные ПК; в каждой группе показывает рекомендуемую базовую модель и минимум две альтернативы с кратким сравнением плюсов и минусов.
+- Позволяет установить, подключить и удалить любую поддержанную модель. Удаление последнего ACE-Step профиля также очищает его общий runtime, но не затрагивает Stable Audio и музыкальную коллекцию.
 
 #### Track Library
 
@@ -260,10 +261,10 @@ Metadata contract реализован как `library-v1.json`; переход 
 
 | Tier | Предварительный engine | Hardware | Статус |
 |---|---|---|---|
-| Light | Stable Audio 3 Small-Music | M1+, 8 ГБ minimum; 16 ГБ recommended | Основной кандидат MVP |
-| Quality | ACE-Step 1.5 | 24 ГБ+ recommended | Экспериментальный, зависит от benchmark |
-| Windows Small | Stable Audio 3 TFLite Small-Music | 8–24 ГБ RAM; CPU LiteRT | Реализовано: economic/quality precision |
-| Windows Medium | Stable Audio 3 TFLite Medium | 24–32+ ГБ RAM, 12–16+ CPU threads | Реализовано: balanced/max precision |
+| Compact | Stable Audio Small; ACE Turbo/Lite | 8–15 ГБ RAM; ACE требует подходящий GPU | Реализовано: база + 2 альтернативы |
+| Balanced | Stable Audio Small/Medium; ACE Pro | 16–23 ГБ RAM; 12 ГБ VRAM для ACE Pro | Реализовано: база + 2 альтернативы |
+| Powerful | Stable Audio Medium; ACE Pro/Max | 24+ ГБ RAM; до 24 ГБ VRAM | Реализовано: база + 3 альтернативы |
+| Windows CPU | Stable Audio TFLite Small/Medium | 8–32+ ГБ RAM, CPU LiteRT | Реализовано: четыре precision-профиля |
 
 Все hardware-пороги — 🔶 **Assumption**. Нужны короткие smoke/runtime проверки минимум на M1/8 ГБ, M1 или M2/16 ГБ и современном Mac/24–32 ГБ.
 
@@ -335,6 +336,7 @@ Stable Audio code и model weights имеют разные условия. Дл�
 - [ ] После подтверждения скачивает Stable Audio 3 Small MLX на macOS или выбранный TFLite-профиль на Windows, показывает этапы и позволяет отменить установку.
 - [ ] Проверяет зафиксированные runtime archives по SHA-256, не сохраняет token/credentials и автоматически подключает offline generation.
 - [ ] Незавершённая установка не выдаётся за готовую; повторная попытка использует уже загруженный model cache.
+- [ ] Windows проверяет bundled `tokenizer.model`, восстанавливает отсутствующий файл по закреплённому SHA-256 и поддерживает кириллический путь пользовательского профиля.
 
 ### Story 2 — Настройка станции
 
@@ -418,6 +420,7 @@ Stable Audio code и model weights имеют разные условия. Дл�
 
 - [ ] Показаны общее число треков и общий размер.
 - [ ] Показаны количество и размер по каждому жанру.
+- [ ] Нажатие на жанр в статистике открывает список только его треков; фильтр виден и сбрасывается одной кнопкой.
 - [ ] Пользователь задаёт storage limit.
 - [ ] Можно удалить отдельный трек, кроме current/ready.
 - [ ] Команда «Удалить всё без лайка» показывает количество и объём до подтверждения.
@@ -557,15 +560,18 @@ Future candidates: влияние лайков на генерацию, поль
 ### Slice 4 — Windows parity — реализовано, требуется hardware beta
 
 - Windows shell с тем же station/player/library/model-manager сценарием и 60-Гц видимой анимацией.
-- Stable Audio 3 TFLite с четырьмя профилями, автоподбором по RAM/CPU, ручной установкой/удалением и автоматическим подключением.
+- Stable Audio 3 TFLite и ACE-Step с восемью профилями, автоподбором по RAM/CPU/VRAM, ручной установкой/удалением и автоматическим подключением.
+- Три аппаратные группы, сравнение каждой альтернативы с базовой моделью и выделение амбициозных профилей.
+- Последние жанры, энергия, настроение, темп, атмосфера и остальные параметры станции сохраняются при выходе.
 - Один generation process, memory guard, suspend cancellation, hidden-window rendering stop и NSIS x64 installer.
+- Миграция старого Windows runtime распознаёт отсутствие tokenizer, восстанавливает его без удаления треков и использует Unicode-safe загрузку SentencePiece.
 - Release workflow публикует `.exe`, macOS ZIP и SHA-256 по тегу.
 
 ### Следующий этап — hardware beta
 
 - M1/M2 checks на 8–16 ГБ и ручные сессии владельца.
-- Windows checks минимум на 8/16/24/32 ГБ RAM и разных классах CPU.
-- ACE-Step quality adapter только после отдельного macOS benchmark.
+- Windows checks минимум на 8/16/24/32 ГБ RAM, разных классах CPU и NVIDIA GPU с 6/12/24 ГБ VRAM.
+- Hardware benchmark уже реализованного ACE-Step adapter на macOS и Windows.
 - Signing/notarization только после отдельного решения и credentials.
 
 ---

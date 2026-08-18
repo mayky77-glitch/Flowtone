@@ -6,7 +6,7 @@ const os = require('node:os');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const { GENRES, composePrompt, createStationConfiguration, generateTitle, genreProfile, pickTempo, profileCount } = require('../src/core.cjs');
-const { recommendModel } = require('../src/runtime.cjs');
+const { MODEL_GROUPS, MODEL_PROFILES, StableAudioRuntime, recommendGroup, recommendModel, stableRuntimeHealth } = require('../src/runtime.cjs');
 const { TrackLibrary } = require('../src/library.cjs');
 
 test('autoselection scales model with memory and CPU', () => {
@@ -14,6 +14,88 @@ test('autoselection scales model with memory and CPU', () => {
   assert.equal(recommendModel({ memoryGiB: 16, logicalCores: 8 }), 'small-quality');
   assert.equal(recommendModel({ memoryGiB: 24, logicalCores: 12 }), 'medium-balanced');
   assert.equal(recommendModel({ memoryGiB: 64, logicalCores: 24 }), 'medium-max');
+});
+
+test('autoselection upgrades to ACE-Step only for suitable NVIDIA VRAM', () => {
+  assert.equal(recommendModel({ memoryGiB: 16, logicalCores: 8, gpu: 'NVIDIA RTX 3060', gpuMemoryGiB: 6 }), 'ace-lite');
+  assert.equal(recommendModel({ memoryGiB: 24, logicalCores: 12, gpu: 'NVIDIA RTX 4070', gpuMemoryGiB: 12 }), 'ace-pro');
+  assert.equal(recommendModel({ memoryGiB: 64, logicalCores: 24, gpu: 'NVIDIA RTX 5090', gpuMemoryGiB: 32 }), 'ace-max');
+  assert.equal(recommendModel({ memoryGiB: 64, logicalCores: 24, gpu: 'AMD Radeon', gpuMemoryGiB: 24 }), 'medium-max');
+});
+
+test('every Windows power group has a baseline and at least two alternatives', () => {
+  assert.equal(recommendGroup({ memoryGiB: 8 }), 'compact');
+  assert.equal(recommendGroup({ memoryGiB: 16 }), 'balanced');
+  assert.equal(recommendGroup({ memoryGiB: 24 }), 'powerful');
+  for (const group of MODEL_GROUPS) {
+    assert.ok(group.modelIds.length >= 3);
+    for (const modelId of group.modelIds) {
+      const model = MODEL_PROFILES[modelId];
+      assert.ok(model);
+      assert.ok(model.better && model.worse);
+    }
+  }
+});
+
+test('old Stable Audio runtime without tokenizer is rejected even under a Cyrillic Windows profile', async () => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'Flowtone-Учкук-'));
+  try {
+    const runtimeRoot = path.join(root, 'Runtime', 'stable-audio-3-tflite');
+    const python = path.join(runtimeRoot, '.venv', 'Scripts', 'python.exe');
+    await writeRuntimeFile(python, 'python');
+    await writeRuntimeFile(path.join(runtimeRoot, 'scripts', 'sa3_tflite.py'), 'main');
+    await writeRuntimeFile(
+      path.join(runtimeRoot, 'models', 'defs', 'tflite_pipeline.py'),
+      'self.sp.LoadFromSerializedProto(model_path.read_bytes())',
+    );
+    const broken = stableRuntimeHealth(runtimeRoot, python);
+    assert.equal(broken.ready, false);
+    assert.equal(broken.repairNeeded, true);
+    assert.ok(broken.missingFiles.includes('tokenizer.model'));
+
+    await writeRuntimeFile(path.join(runtimeRoot, 'models', 'tokenizer.model'), 'tokenizer');
+    assert.equal(stableRuntimeHealth(runtimeRoot, python).ready, true);
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('legacy filename-based tokenizer loader requires the Unicode-safe compatibility patch', async () => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'flowtone-runtime-'));
+  try {
+    const python = path.join(root, '.venv', 'Scripts', 'python.exe');
+    await writeRuntimeFile(python, 'python');
+    await writeRuntimeFile(path.join(root, 'scripts', 'sa3_tflite.py'), 'main');
+    await writeRuntimeFile(path.join(root, 'models', 'tokenizer.model'), 'tokenizer');
+    await writeRuntimeFile(path.join(root, 'models', 'defs', 'tflite_pipeline.py'), 'self.sp.LoadFromFile(str(model_path))');
+    assert.ok(stableRuntimeHealth(root, python).missingFiles.includes('совместимость пути Windows'));
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('initialization migrates the legacy tokenizer loader without a network download', async () => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'Flowtone-Ирина-'));
+  try {
+    const runtimeRoot = path.join(root, 'Runtime', 'stable-audio-3-tflite');
+    const python = path.join(runtimeRoot, '.venv', 'Scripts', 'python.exe');
+    await writeRuntimeFile(python, 'python');
+    await writeRuntimeFile(path.join(runtimeRoot, 'scripts', 'sa3_tflite.py'), 'main');
+    await writeRuntimeFile(path.join(runtimeRoot, 'models', 'tokenizer.model'), 'tokenizer');
+    await writeRuntimeFile(
+      path.join(runtimeRoot, 'models', 'defs', 'tflite_pipeline.py'),
+      '        self.sp = spm.SentencePieceProcessor()\n        self.sp.LoadFromFile(str(model_path))\n',
+    );
+    const runtime = new StableAudioRuntime(root);
+    await runtime.initialize({ memoryGiB: 16, logicalCores: 8 });
+    assert.equal(stableRuntimeHealth(runtimeRoot, python).ready, true);
+    assert.match(
+      await fsp.readFile(path.join(runtimeRoot, 'models', 'defs', 'tflite_pipeline.py'), 'utf8'),
+      /LoadFromSerializedProto\(model_path\.read_bytes\(\)\)/,
+    );
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
 });
 
 test('station configuration stays deterministic for explicit seed', () => {
@@ -88,4 +170,9 @@ function testWave(frameCount = 2205) {
   output.writeUInt16LE(4, 32); output.writeUInt16LE(16, 34); output.write('data', 36); output.writeUInt32LE(dataSize, 40);
   for (let offset = 44; offset < output.length; offset += 2) output.writeInt16LE((offset * 97) % 32767, offset);
   return output;
+}
+
+async function writeRuntimeFile(filePath, contents) {
+  await fsp.mkdir(path.dirname(filePath), { recursive: true });
+  await fsp.writeFile(filePath, contents);
 }

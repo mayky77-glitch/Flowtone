@@ -55,6 +55,63 @@ import Testing
     #expect(environment["TOKENIZERS_PARALLELISM"] == "false")
   }
 
+  @Test func aceStepProfilesMapToDistinctOfficialConfigurations() {
+    #expect(ACEStepModelConfiguration.configuration(for: .aceTurbo)?.languageModel == nil)
+    #expect(
+      ACEStepModelConfiguration.configuration(for: .aceLite)?.languageModel
+        == "acestep-5Hz-lm-0.6B")
+    #expect(
+      ACEStepModelConfiguration.configuration(for: .acePro)?.languageModel
+        == "acestep-5Hz-lm-1.7B")
+    #expect(
+      ACEStepModelConfiguration.configuration(for: .aceMax)?.ditModel
+        == "acestep-v15-xl-turbo")
+    #expect(
+      ACEStepModelConfiguration.configuration(for: .aceMax)?.languageModel
+        == "acestep-5Hz-lm-4B")
+  }
+
+  @Test func aceStepArgumentsDoNotUseShellInterpolation() throws {
+    let request = GenerationRequest(
+      prompt: "ambient $(touch /tmp/should-not-run)",
+      negativePrompt: "vocals; ignored",
+      durationSeconds: 120,
+      seed: 72,
+      outputDirectory: URL(fileURLWithPath: "/tmp")
+    )
+    let output = URL(fileURLWithPath: "/tmp/ace out.wav")
+    let arguments = try ACEStepCommand(modelID: .aceLite).arguments(
+      for: request,
+      outputURL: output
+    )
+
+    #expect(arguments[1] == request.prompt)
+    #expect(arguments[3] == request.negativePrompt)
+    #expect(arguments.last == output.path)
+    #expect(!arguments.contains("/bin/sh"))
+    #expect(!arguments.contains("-c"))
+  }
+
+  @Test func stableAudioProfilesUseDistinctOfficialModelBundles() throws {
+    let request = GenerationRequest(
+      prompt: "ambient",
+      negativePrompt: "vocals",
+      durationSeconds: 30,
+      seed: 9,
+      outputDirectory: URL(fileURLWithPath: "/tmp")
+    )
+    let output = URL(fileURLWithPath: "/tmp/out.wav")
+    let small = try StableAudioMLXCommand(tier: .light).arguments(
+      for: request, outputURL: output)
+    let medium = try StableAudioMLXCommand(tier: .quality).arguments(
+      for: request, outputURL: output)
+
+    #expect(small[small.firstIndex(of: "--dit")! + 1] == "sm-music")
+    #expect(small[small.firstIndex(of: "--decoder")! + 1] == "same-s")
+    #expect(medium[medium.firstIndex(of: "--dit")! + 1] == "medium")
+    #expect(medium[medium.firstIndex(of: "--decoder")! + 1] == "same-l")
+  }
+
   @Test func radioTrackDurationStaysAtTwoMinutes() {
     #expect(RadioGenerationPolicy.trackDurationSeconds == 120)
   }

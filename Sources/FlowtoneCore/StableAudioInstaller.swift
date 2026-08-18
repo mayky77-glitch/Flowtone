@@ -39,12 +39,29 @@ public struct StableAudioInstallationManifest: Sendable {
     "5bb0e5fe008a773c3dbcb97ff79cd89e1241464fe9d2f986d52ad8f1b037bd62"
   public static let requiredFreeDiskBytes: Int64 = 4 * 1_024 * 1_024 * 1_024
 
-  public static let requiredWeightNames = [
-    "dit_sm-music_f16.npz",
-    "same_s_decoder_f32.npz",
-    "same_s_encoder_f32.npz",
-    "t5gemma_f16.npz",
-  ]
+  public static let sharedWeightNames = ["t5gemma_f16.npz"]
+  public static let requiredWeightNames = modelWeightNames(for: .light)
+
+  public static func uniqueWeightNames(for tier: ModelTier) -> [String] {
+    switch tier {
+    case .light:
+      [
+        "dit_sm-music_f16.npz",
+        "same_s_decoder_f32.npz",
+        "same_s_encoder_f32.npz",
+      ]
+    case .quality:
+      [
+        "dit_medium_f16.npz",
+        "same_l_decoder_f32.npz",
+        "same_l_encoder_f32.npz",
+      ]
+    }
+  }
+
+  public static func modelWeightNames(for tier: ModelTier) -> [String] {
+    uniqueWeightNames(for: tier) + sharedWeightNames
+  }
 
   public static let runtimePackages = [
     "mlx==0.32.0",
@@ -146,7 +163,11 @@ public struct StableAudioInstallationManifest: Sendable {
   }
 
   public var requiredWeightURLs: [URL] {
-    Self.requiredWeightNames.map {
+    modelWeightURLs(for: .light)
+  }
+
+  public func modelWeightURLs(for tier: ModelTier) -> [URL] {
+    Self.modelWeightNames(for: tier).map {
       mlxRoot
         .appendingPathComponent("models", isDirectory: true)
         .appendingPathComponent("mlx", isDirectory: true)
@@ -177,7 +198,7 @@ public struct StableAudioInstallationManifest: Sendable {
       """
   }
 
-  public func isComplete(fileManager: FileManager = .default) -> Bool {
+  public func isRuntimeComplete(fileManager: FileManager = .default) -> Bool {
     guard fileManager.isExecutableFile(atPath: launcherURL.path) else { return false }
     guard fileManager.isExecutableFile(atPath: mlxRoot.appendingPathComponent("sa3").path)
     else { return false }
@@ -190,11 +211,23 @@ public struct StableAudioInstallationManifest: Sendable {
           .appendingPathComponent("python").path)
     else { return false }
 
-    return requiredWeightURLs.allSatisfy { url in
+    return true
+  }
+
+  public func isModelInstalled(
+    _ tier: ModelTier,
+    fileManager: FileManager = .default
+  ) -> Bool {
+    guard isRuntimeComplete(fileManager: fileManager) else { return false }
+    return modelWeightURLs(for: tier).allSatisfy { url in
       guard fileManager.fileExists(atPath: url.path) else { return false }
       let attributes = try? fileManager.attributesOfItem(atPath: url.path)
       return (attributes?[.size] as? NSNumber)?.int64Value ?? 0 > 0
     }
+  }
+
+  public func isComplete(fileManager: FileManager = .default) -> Bool {
+    isModelInstalled(.light, fileManager: fileManager)
   }
 
   public static func shellQuote(_ value: String) -> String {
@@ -255,9 +288,13 @@ public final class StableAudioInstaller: @unchecked Sendable {
     self.session = session
   }
 
-  public func install(progress: @escaping ProgressHandler) async throws {
-    if manifest.isComplete(fileManager: fileManager) {
-      await progress(Self.completedProgress)
+  public func install(
+    tier: ModelTier = .light,
+    progress: @escaping ProgressHandler
+  ) async throws {
+    let profile = StableAudioModelProfile.profile(for: tier)
+    if manifest.isModelInstalled(tier, fileManager: fileManager) {
+      await progress(Self.completedProgress(for: profile))
       return
     }
 
@@ -266,10 +303,24 @@ public final class StableAudioInstaller: @unchecked Sendable {
       .init(
         phase: .preparing,
         title: "Проверяю Mac и свободное место",
-        detail: "Нужно около 2 ГБ для модели и до 4 ГБ свободного места на установку.",
+        detail:
+          "Для \(profile.shortTitle) нужно до \(profile.requiredFreeDiskGiB) ГБ свободного места на установку.",
         completedFraction: 0.04
       ))
-    try prepareDirectoriesAndCheckDisk()
+    try prepareDirectoriesAndCheckDisk(profile: profile)
+
+    if manifest.isRuntimeComplete(fileManager: fileManager) {
+      do {
+        try await downloadModel(profile: profile, progress: progress)
+        try installLauncherAndValidate(tier: tier)
+        await progress(Self.completedProgress(for: profile))
+      } catch {
+        removeIncompleteModelFiles(tier: tier)
+        throw error
+      }
+      return
+    }
+
     try Data(Self.timestamp.utf8).write(to: manifest.markerURL, options: .atomic)
 
     do {
@@ -313,7 +364,7 @@ public final class StableAudioInstaller: @unchecked Sendable {
           detail: "Flowtone устанавливает Python и MLX только в свою папку.",
           completedFraction: 0.32
         ))
-      try await runOfficialInstaller(progress: progress)
+      try await runOfficialInstaller(profile: profile, progress: progress)
 
       try Task.checkCancellation()
       await progress(
@@ -323,14 +374,39 @@ public final class StableAudioInstaller: @unchecked Sendable {
           detail: "После этого генерация будет работать без интернета.",
           completedFraction: 0.92
         ))
-      try installLauncherAndValidate()
+      try installLauncherAndValidate(tier: tier)
       try? fileManager.removeItem(at: manifest.markerURL)
       cleanupDependencyCache()
       cleanupInstallerArtifacts()
-      await progress(Self.completedProgress)
+      await progress(Self.completedProgress(for: profile))
     } catch {
       cleanupIncompleteRuntime()
       throw error
+    }
+  }
+
+  public func remove(tier: ModelTier) throws {
+    let otherInstalled = ModelTier.allCases.contains {
+      $0 != tier && manifest.isModelInstalled($0, fileManager: fileManager)
+    }
+
+    if !otherInstalled {
+      for url in [
+        manifest.launcherURL,
+        manifest.runtimeRoot,
+        manifest.pythonInstallRoot,
+        manifest.huggingFaceRoot,
+      ] {
+        try removeManagedItemIfPresent(url)
+      }
+      return
+    }
+
+    for name in StableAudioInstallationManifest.uniqueWeightNames(for: tier) {
+      let url = manifest.mlxRoot
+        .appendingPathComponent("models/mlx", isDirectory: true)
+        .appendingPathComponent(name)
+      try removeModelWeightAndManagedCache(url)
     }
   }
 
@@ -346,16 +422,20 @@ public final class StableAudioInstaller: @unchecked Sendable {
     return hasher.finalize().map { String(format: "%02x", $0) }.joined()
   }
 
-  private static let completedProgress = StableAudioInstallationProgress(
-    phase: .completed,
-    title: "Модель установлена и подключена",
-    detail: "Stable Audio 3 Small готова к локальной генерации.",
-    completedFraction: 1
-  )
+  private static func completedProgress(for profile: StableAudioModelProfile)
+    -> StableAudioInstallationProgress
+  {
+    StableAudioInstallationProgress(
+      phase: .completed,
+      title: "Модель установлена и подключена",
+      detail: "\(profile.title) готова к локальной генерации.",
+      completedFraction: 1
+    )
+  }
 
   private static var timestamp: String { ISO8601DateFormatter().string(from: Date()) }
 
-  private func prepareDirectoriesAndCheckDisk() throws {
+  private func prepareDirectoriesAndCheckDisk(profile: StableAudioModelProfile) throws {
     #if arch(arm64)
       guard ProcessInfo.processInfo.operatingSystemVersion.majorVersion >= 14 else {
         throw StableAudioInstallerError.unsupportedMac
@@ -376,9 +456,10 @@ public final class StableAudioInstaller: @unchecked Sendable {
       values.volumeAvailableCapacityForImportantUsage
       ?? values.volumeAvailableCapacity.map(Int64.init)
       ?? Int64.max
-    guard available >= StableAudioInstallationManifest.requiredFreeDiskBytes else {
+    let requiredBytes = Int64(profile.requiredFreeDiskGiB) * 1_024 * 1_024 * 1_024
+    guard available >= requiredBytes else {
       throw StableAudioInstallerError.insufficientDiskSpace(
-        required: StableAudioInstallationManifest.requiredFreeDiskBytes,
+        required: requiredBytes,
         available: available
       )
     }
@@ -479,7 +560,10 @@ public final class StableAudioInstaller: @unchecked Sendable {
     try fileManager.moveItem(at: extracted, to: manifest.runtimeRoot)
   }
 
-  private func runOfficialInstaller(progress: @escaping ProgressHandler) async throws {
+  private func runOfficialInstaller(
+    profile: StableAudioModelProfile,
+    progress: @escaping ProgressHandler
+  ) async throws {
     var environment = Self.baseEnvironment
     environment["PATH"] =
       "\(manifest.uvExecutableURL.deletingLastPathComponent().path):/usr/bin:/bin:/usr/sbin:/sbin"
@@ -514,26 +598,65 @@ public final class StableAudioInstaller: @unchecked Sendable {
       stage: "установка MLX"
     )
 
+    try await downloadModel(
+      profile: profile,
+      python: python,
+      environment: environment,
+      progress: progress
+    )
+  }
+
+  private func downloadModel(
+    profile: StableAudioModelProfile,
+    progress: @escaping ProgressHandler
+  ) async throws {
+    var environment = Self.baseEnvironment
+    environment["HF_HOME"] = manifest.huggingFaceRoot.path
+    environment["HF_HUB_DISABLE_IMPLICIT_TOKEN"] = "1"
+    environment["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+    environment["HF_HUB_OFFLINE"] = "0"
+    environment["TRANSFORMERS_OFFLINE"] = "0"
+    environment["HF_DATASETS_OFFLINE"] = "0"
+    environment["TOKENIZERS_PARALLELISM"] = "false"
+    environment.removeValue(forKey: "HF_TOKEN")
+    environment.removeValue(forKey: "HUGGING_FACE_HUB_TOKEN")
+    let python = manifest.mlxRoot.appendingPathComponent(".venv/bin/python")
+    try await downloadModel(
+      profile: profile,
+      python: python,
+      environment: environment,
+      progress: progress
+    )
+  }
+
+  private func downloadModel(
+    profile: StableAudioModelProfile,
+    python: URL,
+    environment baseEnvironment: [String: String],
+    progress: @escaping ProgressHandler
+  ) async throws {
     await progress(
       .init(
         phase: .downloadingModel,
-        title: "Загружаю Stable Audio 3 Small",
-        detail: "Около 1,8 ГБ. Скорость зависит от соединения; уже загруженные файлы сохранятся.",
+        title: "Загружаю \(profile.title)",
+        detail:
+          "Около \(String(format: "%.1f", profile.estimatedDownloadGiB)) ГБ. Уже загруженные файлы сохранятся для повтора.",
         completedFraction: 0.45
       ))
+    var environment = baseEnvironment
     environment["INSTALL_SKIP_PIP"] = "1"
     try await runProcess(
       executableURL: python,
       arguments: [
         manifest.mlxRoot.appendingPathComponent("scripts/install.py").path,
-        "--download", "sm-music",
+        "--download", profile.bundleName,
       ],
       environment: environment,
-      stage: "загрузка Stable Audio 3 Small"
+      stage: "загрузка \(profile.title)"
     )
   }
 
-  private func installLauncherAndValidate() throws {
+  private func installLauncherAndValidate(tier: ModelTier) throws {
     let temporaryLauncher = manifest.installerRoot.appendingPathComponent("stable-audio-mlx.new")
     try Data(manifest.launcherScript().utf8).write(to: temporaryLauncher, options: .atomic)
     try fileManager.setAttributes(
@@ -543,7 +666,7 @@ public final class StableAudioInstaller: @unchecked Sendable {
     try? fileManager.removeItem(at: manifest.launcherURL)
     try fileManager.moveItem(at: temporaryLauncher, to: manifest.launcherURL)
 
-    guard manifest.isComplete(fileManager: fileManager) else {
+    guard manifest.isModelInstalled(tier, fileManager: fileManager) else {
       throw StableAudioInstallerError.incompleteInstallation
     }
     var environment = Self.baseEnvironment
@@ -643,6 +766,83 @@ public final class StableAudioInstaller: @unchecked Sendable {
       stage: "очистка установочного кэша"
     )
     try? fileManager.removeItem(at: manifest.uvCacheRoot)
+  }
+
+  private func removeIncompleteModelFiles(tier: ModelTier) {
+    for name in StableAudioInstallationManifest.uniqueWeightNames(for: tier) {
+      let url = manifest.mlxRoot
+        .appendingPathComponent("models/mlx", isDirectory: true)
+        .appendingPathComponent(name)
+      try? removeModelWeightAndManagedCache(url)
+    }
+  }
+
+  private func removeModelWeightAndManagedCache(_ weightURL: URL) throws {
+    let snapshotURL: URL?
+    let blobURL: URL?
+    if let destination = try? fileManager.destinationOfSymbolicLink(atPath: weightURL.path) {
+      let unresolved = URL(
+        fileURLWithPath: destination, relativeTo: weightURL.deletingLastPathComponent()
+      )
+      .standardizedFileURL
+      snapshotURL =
+        isInsideManagedRoot(unresolved, root: manifest.huggingFaceRoot) ? unresolved : nil
+      let resolved = unresolved.resolvingSymlinksInPath().standardizedFileURL
+      blobURL = isInsideManagedRoot(resolved, root: manifest.huggingFaceRoot) ? resolved : nil
+    } else {
+      snapshotURL = nil
+      blobURL = nil
+    }
+
+    if itemExistsIncludingSymlink(weightURL) {
+      try fileManager.removeItem(at: weightURL)
+    }
+    if let snapshotURL, itemExistsIncludingSymlink(snapshotURL) {
+      try fileManager.removeItem(at: snapshotURL)
+    }
+    if let blobURL, itemExistsIncludingSymlink(blobURL), !managedCacheReferences(blobURL) {
+      try fileManager.removeItem(at: blobURL)
+    }
+  }
+
+  private func managedCacheReferences(_ target: URL) -> Bool {
+    guard
+      let enumerator = fileManager.enumerator(
+        at: manifest.huggingFaceRoot,
+        includingPropertiesForKeys: [.isSymbolicLinkKey],
+        options: [.skipsHiddenFiles]
+      )
+    else { return false }
+
+    for case let candidate as URL in enumerator {
+      guard
+        (try? candidate.resourceValues(forKeys: [.isSymbolicLinkKey]).isSymbolicLink) == true
+      else { continue }
+      if candidate.resolvingSymlinksInPath().standardizedFileURL == target.standardizedFileURL {
+        return true
+      }
+    }
+    return false
+  }
+
+  private func removeManagedItemIfPresent(_ url: URL) throws {
+    guard isInsideManagedRoot(url, root: manifest.applicationSupportRoot) else {
+      throw CocoaError(.fileWriteInvalidFileName)
+    }
+    if itemExistsIncludingSymlink(url) {
+      try fileManager.removeItem(at: url)
+    }
+  }
+
+  private func itemExistsIncludingSymlink(_ url: URL) -> Bool {
+    fileManager.fileExists(atPath: url.path)
+      || (try? fileManager.destinationOfSymbolicLink(atPath: url.path)) != nil
+  }
+
+  private func isInsideManagedRoot(_ candidate: URL, root: URL) -> Bool {
+    let rootPath = root.standardizedFileURL.path
+    let candidatePath = candidate.standardizedFileURL.path
+    return candidatePath == rootPath || candidatePath.hasPrefix(rootPath + "/")
   }
 
   private static var baseEnvironment: [String: String] {

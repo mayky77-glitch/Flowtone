@@ -19,7 +19,7 @@ Flowtone — бесплатное приложение для Windows и macOS �
 - нативный SwiftUI shell;
 - Windows 10/11 x64 shell с тем же сценарием, визуальным языком и частотой анимации 60 Гц;
 - core-модели станции и prompt composer;
-- рекомендация model tier по памяти Mac и отдельный Windows-подбор по RAM/CPU;
+- рекомендация model tier по памяти Mac и Windows-подбор по RAM/CPU/VRAM;
 - resource policy и последовательный generation scheduler;
 - synthetic WAV engine для end-to-end проверки без model weights;
 - process adapter для официального Stable Audio 3 MLX CLI;
@@ -30,27 +30,30 @@ Flowtone — бесплатное приложение для Windows и macOS �
 - очередь `current + 2 ready`, автоповтор и подмена нового трека в хвосте;
 - режимы «Полное радио» (временное окно треков) и «Радио с записью»;
 - случайный порядок без близких повторов, session history и безопасное удаление текущего трека;
-- архив с отдельными вкладками треков и статистики, лайки, удаление и массовая очистка;
+- архив с отдельными вкладками треков и статистики, переход из жанра статистики к его трекам, лайки, удаление и массовая очистка;
 - отдельный раздел «Любимые» и запуск любого трека из коллекции;
 - локальные автоназвания до десяти слов из жанра, настроения, темпа эфира и вайба;
-- 29 жанров, 350 автоматических звуковых профилей и изменение настроек во время сессии;
+- 29 жанров, 350 автоматических звуковых профилей, изменение настроек во время сессии и восстановление последних фильтров после перезапуска;
 - случайный микс 2–5 жанров, расширенные Fantasy, Pirate, Synthwave, Space Rock, Cyberpunk и Berlin-rave направления;
 - genre-aware prompt-профили и автоматический BPM с контролируемым разнообразием;
 - остановка записи новых треков и всплывающее предупреждение при заполнении лимита;
 - последовательная генерация с потоковой записью WAV, очисткой временного кэша и отменой при memory pressure;
-- автоматическая установка и подключение Stable Audio 3 Small без Terminal: official pinned runtime, SHA-256 verification, progress/cancel и offline generation;
-- четыре Windows-профиля Stable Audio 3 TFLite: автоматический выбор по RAM/CPU, ручная установка и удаление, автоматическое подключение доступной модели;
+- автоматическая установка Stable Audio 3 Small/Medium и ACE-Step 1.5 без Terminal: pinned official runtimes, SHA-256 verification, progress/cancel и локальная генерация;
+- три группы мощности на macOS и Windows; в каждой есть базовый автовыбор и минимум две альтернативы с кратким сравнением плюсов и минусов;
+- четыре Stable Audio 3 TFLite-профиля и четыре ACE-Step-конфигурации Windows: подбор по RAM/CPU/VRAM, ручная установка, удаление и автоматическое подключение;
+- самовосстановление старого Windows runtime: обязательный `tokenizer.model` проверяется и докачивается по закреплённому SHA-256, а кириллические пути профиля не передаются нативному SentencePiece;
 - один фоновый generation process, ограниченные потоки, контроль свободной памяти и полная остановка анимации в скрытом окне Windows;
+- защита от двойного запуска: актуальная Flowtone остаётся единственным экземпляром;
 - выбранная владельцем тёплая retro-иконка с пластинкой;
 - MIT-лицензия исходного кода, ad-hoc signed macOS/неподписанный Windows packagers, CI обеих платформ и GitHub Release по тегу.
 
-Настоящие model weights в репозиторий, `.app` и `.exe` не входят. После личного прочтения official model/license pages приложение само скачивает public optimized bundle и подключает его; token не нужен и не сохраняется. На Windows Flowtone рекомендует один из четырёх профилей по объёму RAM и числу CPU-потоков, но пользователь всегда может установить, удалить или выбрать другой. Каждый production generation process запускается отдельно, а после одного трека освобождает память модели.
+Настоящие model weights в репозиторий, `.app` и `.exe` не входят. После личного прочтения official model/license pages приложение само скачивает выбранную модель и подключает её; token не нужен и не сохраняется. Stable Audio остаётся экономной базой, а ACE-Step 1.5 отмечен как амбициозная альтернатива для более длинной и сложной музыкальной формы. На Windows NVIDIA-конфигурация ACE-Step автоматически рекомендуется только при достаточной RAM и VRAM; для остальных ПК сохраняется надёжный LiteRT CPU-путь. Каждый production generation process запускается отдельно, а после одного трека освобождает память модели.
 
 - [Product Requirements Document](docs/PRD.md)
 - [Музыкальная карта пресетов](docs/MUSIC-PRESETS.md)
 - Целевые платформы: Windows 10/11 x64 и Apple Silicon M1 или новее
-- Базовый local engine: Stable Audio 3 Small-Music
-- Экспериментальный quality engine: ACE-Step 1.5
+- Базовый local engine: Stable Audio 3 Small/Medium
+- Амбициозные альтернативы: ACE-Step 1.5 Turbo 0,6B/1,7B и XL 4B
 
 ## Принципы
 
@@ -62,9 +65,9 @@ Flowtone — бесплатное приложение для Windows и macOS �
 
 ## Что ещё нужно проверить перед стабильным выпуском
 
-1. Реализовать и проверить ACE-Step adapter для quality tier.
-2. Профилировать лёгкий tier на M1/M2 с 8–16 ГБ; текущий benchmark относится только к M4/16 ГБ.
-3. Провести аппаратные тесты Windows-профилей на нескольких CPU/GPU и объёмах RAM.
+1. Провести аппаратные тесты ACE-Step на M1/M2/M4 и Windows NVIDIA с 6/12/24 ГБ VRAM.
+2. Профилировать лёгкий Stable tier на M1/M2 с 8–16 ГБ; текущий benchmark относится только к M4/16 ГБ.
+3. Проверить Windows fallback на AMD/Intel и нескольких объёмах RAM; ACE-Step пока автоматически выбирается только для подходящей NVIDIA GPU.
 4. macOS bundle получает цельную ad-hoc подпись после упаковки. Developer ID signing/notarization не входят в scope и потребуют credentials.
 
 ## Быстрый старт для разработки macOS
@@ -81,8 +84,8 @@ scripts/package-app.sh /tmp/flowtone-package
 ```
 
 Debug-сборка использует явно помеченный synthetic fallback, если локальная модель не установлена.
-Release-сборка генерирует музыку только через найденный Stable Audio runtime. Подключение настоящего
-Stable Audio выполняется из окна «Настроить модель» и описано в [implementation guide](docs/IMPLEMENTATION.md).
+Release-сборка генерирует музыку только через установленный Stable Audio или ACE-Step runtime. Подключение настоящей
+модели выполняется из окна «Настроить модель» и описано в [implementation guide](docs/IMPLEMENTATION.md).
 В собранный `.app` автоматически включается выбранная иконка из `Assets/AppIcon.icns`.
 
 ## Быстрый старт для разработки Windows
@@ -101,10 +104,10 @@ npm start
 
 ## Лицензирование
 
-Исходный код Flowtone распространяется по [MIT License](LICENSE). Model weights и условия Stable Audio 3 не входят в MIT и остаются на условиях правообладателей.
+Исходный код Flowtone распространяется по [MIT License](LICENSE). Model weights и условия Stable Audio 3, Gemma и ACE-Step не входят в лицензию кода Flowtone и остаются на условиях правообладателей.
 
 ## Сборки и публикация
 
-Каждый `push` проверяет обе платформы и сохраняет временные Actions artifacts на 14 дней. Тег вида `v1.1.1` дополнительно создаёт GitHub Release с постоянными файлами `Flowtone-Setup-Windows-x64.exe`, `Flowtone-macOS-arm64.zip` и SHA-256 для каждого файла. Подробная Windows-инструкция находится в [docs/INSTALL-WINDOWS-RU.md](docs/INSTALL-WINDOWS-RU.md).
+Каждый `push` проверяет обе платформы и сохраняет временные Actions artifacts на 14 дней. Тег вида `v1.2.0` дополнительно создаёт GitHub Release с постоянными файлами `Flowtone-Setup-Windows-x64.exe`, `Flowtone-macOS-arm64.zip` и SHA-256 для каждого файла. Подробная Windows-инструкция находится в [docs/INSTALL-WINDOWS-RU.md](docs/INSTALL-WINDOWS-RU.md).
 
 macOS bundle подписан ad-hoc, но не Developer ID и не notarized; Windows installer не подписан. Система может потребовать явное подтверждение при первом запуске. Не скачивайте Flowtone из непроверенных источников.

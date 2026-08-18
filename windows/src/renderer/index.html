@@ -159,7 +159,7 @@
     <div class="modal-tabs"><button type="button" data-library-tab="tracks">Треки</button><button type="button" data-library-tab="statistics">Статистика</button></div>
     <div id="library-tracks-view" class="library-content">
       <div class="library-toolbar">
-        <div class="segmented two compact"><button type="button" data-library-filter="all">Все записи</button><button type="button" data-library-filter="liked">Любимые</button></div>
+        <div class="library-filters"><div class="segmented two compact"><button type="button" data-library-filter="all">Все записи</button><button type="button" data-library-filter="liked">Любимые</button></div><button id="library-genre-filter" class="small-button genre-filter" type="button" hidden></button></div>
         <button id="cleanup-library" class="small-button danger" type="button">Удалить все без лайка</button>
       </div>
       <div id="track-list" class="track-list"></div>
@@ -173,7 +173,7 @@
 
   <section id="model-modal" class="modal model-modal" role="dialog" aria-modal="true" aria-labelledby="model-title" tabindex="-1" hidden>
     <header class="modal-header">
-      <div><span class="eyebrow">НАСТРОЙКА МОДЕЛИ</span><h2 id="model-title">Stable Audio 3</h2><p>Автоподбор, установка и удаление без Terminal</p></div>
+      <div><span class="eyebrow">НАСТРОЙКА МОДЕЛИ</span><h2 id="model-title">Музыкальные модели</h2></div>
       <button class="close-modal" type="button" aria-label="Закрыть">×</button>
     </header>
     <div class="model-scroll">
@@ -185,8 +185,8 @@
       </section>
       <section class="setup-card terms-card">
         <h3>1. ПРОЧИТАЙТЕ УСЛОВИЯ</h3>
-        <p>Код Flowtone распространяется отдельно от весов Stable Audio. Откройте официальные страницы и лично примите применимые условия.</p>
-        <div class="link-buttons"><button data-url="https://huggingface.co/stabilityai/stable-audio-3-optimized">Модели</button><button data-url="https://stability.ai/license">Лицензия</button><button data-url="https://ai.google.dev/gemma/terms">Условия Gemma</button><button data-url="https://github.com/Stability-AI/stable-audio-3">Исходный код</button></div>
+        <p>Код Flowtone распространяется отдельно от весов Stable Audio и ACE-Step. Откройте официальные страницы и лично примите применимые условия.</p>
+        <div class="link-buttons"><button data-url="https://huggingface.co/stabilityai/stable-audio-3-optimized">Stable Audio</button><button data-url="https://stability.ai/license">Лицензия</button><button data-url="https://ai.google.dev/gemma/terms">Условия Gemma</button><button data-url="https://github.com/Stability-AI/stable-audio-3">Код Stable</button><button data-url="https://github.com/ace-step/ACE-Step-1.5">ACE-Step 1.5</button></div>
         <button id="acknowledge-terms" class="acknowledge-button" type="button">Я лично открыл(а) и прочитал(а) официальные условия</button>
         <div id="terms-confirmed" class="confirmed" hidden>✓ Прочтение условий подтверждено на этом компьютере</div>
       </section>

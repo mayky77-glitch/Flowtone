@@ -44,4 +44,22 @@ import Testing
           warning: nil
         ))
   }
+
+  @Test func everyHardwareGroupHasBaselineAndTwoComparedAlternatives() {
+    for group in HardwareModelGroup.allCases {
+      #expect(group.modelIDs.count >= 3)
+      #expect(group.modelIDs.contains(group.baselineID))
+      for modelID in group.modelIDs {
+        let profile = MusicModelProfile.profile(for: modelID)
+        #expect(!profile.betterThanBaseline.isEmpty)
+        #expect(!profile.worseThanBaseline.isEmpty)
+      }
+    }
+  }
+
+  @Test func preferencesRoundTripEveryModel() {
+    for modelID in MusicModelID.allCases {
+      #expect(ModelPreference(modelID: modelID).requestedModelID == modelID)
+    }
+  }
 }

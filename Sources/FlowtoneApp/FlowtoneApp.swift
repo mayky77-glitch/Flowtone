@@ -14,15 +14,31 @@ struct FlowtoneApp: App {
     }
     .windowStyle(.hiddenTitleBar)
     .defaultSize(width: 1_080, height: 720)
+
+    Settings {
+      StableAudioSetupSheet(model: model)
+    }
   }
 }
 
 private final class FlowtoneAppDelegate: NSObject, NSApplicationDelegate {
+  private let flowtoneBundleIdentifier = "com.flowtone.app"
+
   func applicationWillFinishLaunching(_ notification: Notification) {
+    terminateDuplicateInstances()
     NSApp.setActivationPolicy(.regular)
   }
 
   func applicationDidFinishLaunching(_ notification: Notification) {
     NSApp.activate(ignoringOtherApps: true)
+  }
+
+  private func terminateDuplicateInstances() {
+    let currentProcessIdentifier = ProcessInfo.processInfo.processIdentifier
+    for application in NSRunningApplication.runningApplications(
+      withBundleIdentifier: flowtoneBundleIdentifier
+    ) where application.processIdentifier != currentProcessIdentifier {
+      application.terminate()
+    }
   }
 }

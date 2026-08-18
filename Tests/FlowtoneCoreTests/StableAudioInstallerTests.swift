@@ -17,6 +17,10 @@ import Testing
     #expect(manifest.runtimeRoot.path.hasPrefix(root.path))
     #expect(manifest.huggingFaceRoot.path.hasPrefix(root.path))
     #expect(manifest.requiredWeightURLs.count == 4)
+    #expect(manifest.modelWeightURLs(for: .quality).count == 4)
+    #expect(
+      Set(manifest.modelWeightURLs(for: .light))
+        .intersection(manifest.modelWeightURLs(for: .quality)).count == 1)
   }
 
   @Test func launcherUsesOfflineModelCacheAndQuotesPaths() throws {
@@ -119,6 +123,34 @@ import Testing
 
     #expect(manifest.isComplete())
     #expect(await recorder.values.last?.phase == .completed)
+  }
+
+  @Test func removingOneModelPreservesOtherAndRemovingLastCleansRuntime() throws {
+    let root = try makeTemporaryRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let manifest = StableAudioInstallationManifest(applicationSupportRoot: root)
+    try makeExecutable(manifest.launcherURL)
+    try makeExecutable(manifest.mlxRoot.appendingPathComponent("sa3"))
+    try makeExecutable(manifest.mlxRoot.appendingPathComponent(".venv/bin/python"))
+    for tier in ModelTier.allCases {
+      for weightURL in manifest.modelWeightURLs(for: tier) {
+        try FileManager.default.createDirectory(
+          at: weightURL.deletingLastPathComponent(),
+          withIntermediateDirectories: true
+        )
+        try Data([1]).write(to: weightURL)
+      }
+    }
+    let installer = StableAudioInstaller(manifest: manifest)
+
+    try installer.remove(tier: .light)
+    #expect(!manifest.isModelInstalled(.light))
+    #expect(manifest.isModelInstalled(.quality))
+    #expect(manifest.isRuntimeComplete())
+
+    try installer.remove(tier: .quality)
+    #expect(!manifest.isRuntimeComplete())
+    #expect(!FileManager.default.fileExists(atPath: manifest.runtimeRoot.path))
   }
 
   private func makeTemporaryRoot() throws -> URL {

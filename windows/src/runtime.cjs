@@ -8,38 +8,105 @@ const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { Readable } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
+const { ACEStepRuntime } = require('./ace-runtime.cjs');
 
 const SOURCE_REVISION = 'a0b57f5483c4588f827f3552b7d5c6ca2a9687be';
 const SOURCE_SHA256 = '57c5f639e4e55ec2357cd193cc40ebf7749e4478dc01ef26ce2c541ed1ece380';
 const UV_VERSION = '0.12.5';
 const UV_WINDOWS_SHA256 = '4c4d49d8738847d9b71ba319e49a5688c93eac0fe6204b1df24e98528dddf39a';
+const TOKENIZER_RELATIVE_PATH = 'models/tokenizer.model';
+const TOKENIZER_SHA256 = '61a7b147390c64585d6c3543dd6fc636906c9af3865a5548f27f31aee1d4c8e2';
+const TOKENIZER_REMOTE_URL = `https://raw.githubusercontent.com/Stability-AI/stable-audio-3/${SOURCE_REVISION}/optimized/tflite/${TOKENIZER_RELATIVE_PATH}`;
+const TOKENIZER_COMPATIBILITY_MARKER = 'LoadFromSerializedProto(model_path.read_bytes())';
 
 const MODEL_PROFILES = {
   'small-efficient': {
     id: 'small-efficient', title: 'Stable Audio 3 Small · экономная',
     detail: 'Для 8–12 ГБ памяти и небольшого числа ядер',
-    dit: 'sm-music', decoder: 'same-s', precision: 'w8a8-dyn', estimatedGiB: 1.2,
+    family: 'stable-audio', group: 'compact', dit: 'sm-music', decoder: 'same-s',
+    precision: 'w8a8-dyn', estimatedGiB: 1.2, requiredFreeGiB: 4,
+    better: 'База: самая экономная и предсказуемая для фоновой работы.',
+    worse: 'Проще аранжировки и меньше деталей, чем у тяжёлых моделей.',
   },
   'small-quality': {
     id: 'small-quality', title: 'Stable Audio 3 Small · точная',
     detail: 'Для среднего ПК с 12–24 ГБ памяти',
-    dit: 'sm-music', decoder: 'same-s', precision: 'fp32', estimatedGiB: 2.9,
+    family: 'stable-audio', group: 'balanced', dit: 'sm-music', decoder: 'same-s',
+    precision: 'fp32', estimatedGiB: 2.9, requiredFreeGiB: 6,
+    better: 'Лучше экономной: чище детали и меньше потерь от квантования.',
+    worse: 'Хуже экономной: медленнее и требует больше RAM.',
   },
   'medium-balanced': {
     id: 'medium-balanced', title: 'Stable Audio 3 Medium · оптимальная',
     detail: 'Для мощного ПК с 24+ ГБ памяти и 12+ потоками CPU',
-    dit: 'medium', decoder: 'same-l', precision: 'w8a32', estimatedGiB: 3.2,
+    family: 'stable-audio', group: 'powerful', dit: 'medium', decoder: 'same-l',
+    precision: 'w8a32', estimatedGiB: 3.2, requiredFreeGiB: 7,
+    better: 'Лучше Small: плотнее слои, пространство и длинное развитие.',
+    worse: 'Хуже Small: заметно медленнее и тяжелее для CPU.',
   },
   'medium-max': {
     id: 'medium-max', title: 'Stable Audio 3 Medium · максимум',
     detail: 'Для ПК с 32+ ГБ памяти и 16+ потоками CPU',
-    dit: 'medium', decoder: 'same-l', precision: 'fp32', estimatedGiB: 8.8,
+    family: 'stable-audio', group: 'powerful', dit: 'medium', decoder: 'same-l',
+    precision: 'fp32', estimatedGiB: 8.8, requiredFreeGiB: 13,
+    better: 'Лучше оптимальной: максимум точности без квантования.',
+    worse: 'Хуже оптимальной: самая медленная Stable-конфигурация.',
+  },
+  'ace-turbo': {
+    id: 'ace-turbo', title: 'ACE-Step 1.5 Turbo · без LM',
+    detail: 'Амбициозная полная форма для 8+ ГБ RAM; CPU/GPU с offload',
+    family: 'ace-step', group: 'compact', estimatedGiB: 10, requiredFreeGiB: 16,
+    ambitious: true, ace: { dit: 'acestep-v15-turbo', lm: null },
+    better: 'Лучше базы: длиннее форма и смелее жанровые переходы.',
+    worse: 'Хуже базы: загрузка намного больше, первый старт дольше.',
+  },
+  'ace-lite': {
+    id: 'ace-lite', title: 'ACE-Step 1.5 Turbo · LM 0,6B',
+    detail: 'Для 16+ ГБ RAM или GPU от 6 ГБ',
+    family: 'ace-step', group: 'balanced', estimatedGiB: 11.5, requiredFreeGiB: 18,
+    ambitious: true, ace: { dit: 'acestep-v15-turbo', lm: 'acestep-5Hz-lm-0.6B' },
+    better: 'Лучше базы: точнее понимает идею, темп и строение композиции.',
+    worse: 'Хуже базы: тяжелее, медленнее и может использовать offload.',
+  },
+  'ace-pro': {
+    id: 'ace-pro', title: 'ACE-Step 1.5 Turbo · LM 1,7B',
+    detail: 'Для 24+ ГБ RAM или GPU от 12 ГБ',
+    family: 'ace-step', group: 'powerful', estimatedGiB: 14, requiredFreeGiB: 21,
+    ambitious: true, ace: { dit: 'acestep-v15-turbo', lm: 'acestep-5Hz-lm-1.7B' },
+    better: 'Лучше базы: сложнее структура и выразительнее развитие.',
+    worse: 'Хуже базы: дольше генерация и выше фоновая нагрузка.',
+  },
+  'ace-max': {
+    id: 'ace-max', title: 'ACE-Step 1.5 XL · LM 4B',
+    detail: 'Для 32+ ГБ RAM и GPU от 24 ГБ',
+    family: 'ace-step', group: 'powerful', estimatedGiB: 27, requiredFreeGiB: 38,
+    ambitious: true, ace: { dit: 'acestep-v15-xl-turbo', lm: 'acestep-5Hz-lm-4B' },
+    better: 'Лучше базы: максимум структуры, деталей и следования задумке.',
+    worse: 'Хуже базы: огромная модель; требует мощную GPU и много времени.',
   },
 };
+
+const MODEL_GROUPS = [
+  { id: 'compact', title: 'КОМПАКТНЫЙ ПК', requirement: '8–15 ГБ RAM', modelIds: ['small-efficient', 'small-quality', 'ace-turbo'] },
+  { id: 'balanced', title: 'СБАЛАНСИРОВАННЫЙ ПК', requirement: '16–23 ГБ RAM', modelIds: ['small-quality', 'ace-turbo', 'ace-lite'] },
+  { id: 'powerful', title: 'МОЩНЫЙ ПК', requirement: '24+ ГБ RAM / производительная GPU', modelIds: ['medium-balanced', 'medium-max', 'ace-pro', 'ace-max'] },
+];
+
+function recommendGroup(hardware) {
+  const memory = Number(hardware.memoryGiB) || 0;
+  if (memory >= 24) return 'powerful';
+  if (memory >= 16) return 'balanced';
+  return 'compact';
+}
 
 function recommendModel(hardware) {
   const memory = Number(hardware.memoryGiB) || 0;
   const threads = Number(hardware.logicalCores) || 0;
+  const gpuMemory = Number(hardware.gpuMemoryGiB) || 0;
+  const nvidia = /nvidia/i.test(String(hardware.gpu || ''));
+  if (nvidia && memory >= 32 && gpuMemory >= 24) return 'ace-max';
+  if (nvidia && memory >= 24 && gpuMemory >= 12) return 'ace-pro';
+  if (nvidia && memory >= 16 && gpuMemory >= 6) return 'ace-lite';
   if (memory >= 32 && threads >= 16) return 'medium-max';
   if (memory >= 24 && threads >= 12) return 'medium-balanced';
   if (memory >= 12 && threads >= 6) return 'small-quality';
@@ -63,6 +130,8 @@ class StableAudioRuntime {
     this.generating = false;
     this.cancelRequested = false;
     this.hardware = null;
+    this.stableRuntimeRepairError = null;
+    this.aceRuntime = new ACEStepRuntime(applicationSupportRoot, onProgress);
   }
 
   async initialize(hardware) {
@@ -70,13 +139,21 @@ class StableAudioRuntime {
     await Promise.all([
       fsp.mkdir(this.downloadsRoot, { recursive: true }),
       fsp.mkdir(this.modelsRoot, { recursive: true }),
+      this.aceRuntime.initialize(),
     ]);
+    try {
+      await this.#repairStableRuntimeCompatibility();
+      this.stableRuntimeRepairError = null;
+    } catch (error) {
+      this.stableRuntimeRepairError = sanitizeProcessError(error?.message || error);
+    }
     return this.status();
   }
 
   async status(preference = 'auto') {
     const hardware = this.hardware || basicHardwareProfile();
     const recommendedModel = recommendModel(hardware);
+    const recommendedGroup = recommendGroup(hardware);
     const installedModels = Object.values(MODEL_PROFILES)
       .filter((profile) => this.#profileIsInstalled(profile)).map((profile) => profile.id);
     const requested = preference === 'auto' ? recommendedModel : preference;
@@ -85,16 +162,21 @@ class StableAudioRuntime {
       : installedModels.includes(recommendedModel)
         ? recommendedModel
         : installedModels[0] || null;
+    const stableRuntime = stableRuntimeHealth(this.runtimeRoot, this.#pythonExecutable());
     return {
       supported: process.platform === 'win32',
-      runtimeReady: this.#runtimeIsReady(),
+      runtimeReady: installedModels.length > 0,
       recommendedModel,
       connectedModel,
       installedModels,
       models: Object.values(MODEL_PROFILES),
+      modelGroups: MODEL_GROUPS,
+      recommendedGroup,
       installing: this.installing,
       generating: this.generating,
-      runtimePath: this.runtimeRoot,
+      runtimePath: `${this.runtimeRoot}\n${this.aceRuntime.runtimeRoot}`,
+      stableRuntimeRepairNeeded: stableRuntime.repairNeeded || Boolean(this.stableRuntimeRepairError),
+      stableRuntimeRepairDetail: this.stableRuntimeRepairError || stableRuntime.missingFiles.join(', '),
       hardware,
     };
   }
@@ -107,6 +189,11 @@ class StableAudioRuntime {
     this.installing = true;
     this.cancelRequested = false;
     try {
+      if (profile.family === 'ace-step') {
+        await this.aceRuntime.install(profile);
+        this.#progress('completed', 'Модель установлена и подключена', profile.title, 1);
+        return this.status(modelId);
+      }
       await this.#checkDisk(profile);
       if (!this.#runtimeIsReady()) await this.#installRuntime();
       await this.#downloadModel(profile);
@@ -126,6 +213,13 @@ class StableAudioRuntime {
     if (!profile) throw new Error('Неизвестный профиль модели.');
     this.cancel();
     await this.#waitForProcessExit();
+    if (profile.family === 'ace-step') {
+      const remaining = Object.values(MODEL_PROFILES).filter((item) =>
+        item.family === 'ace-step' && item.id !== modelId && this.aceRuntime.isInstalled(item));
+      await this.aceRuntime.uninstall(profile, remaining);
+      await this.#writeManifest();
+      return this.status('auto');
+    }
     for (const relativePath of this.#requiredRelativePaths(profile)) {
       if (relativePath.includes('/t5gemma/') && this.#otherInstalledModels(modelId).length) continue;
       await this.#removeValidated(path.join(this.runtimeRoot, ...relativePath.split('/')), this.runtimeRoot);
@@ -141,13 +235,14 @@ class StableAudioRuntime {
   async uninstallAllModels() {
     this.cancel();
     await this.#waitForProcessExit();
-    for (const profile of Object.values(MODEL_PROFILES)) {
+    for (const profile of Object.values(MODEL_PROFILES).filter((item) => item.family === 'stable-audio')) {
       for (const relativePath of this.#requiredRelativePaths(profile)) {
         await this.#removeValidated(path.join(this.runtimeRoot, ...relativePath.split('/')), this.runtimeRoot);
       }
     }
     await this.#removeValidated(this.modelsRoot, this.applicationSupportRoot);
     await fsp.mkdir(this.modelsRoot, { recursive: true });
+    await this.aceRuntime.uninstallAll();
     await this.#writeManifest();
     return this.status('auto');
   }
@@ -159,6 +254,15 @@ class StableAudioRuntime {
     if (os.freemem() < 1.25 * 1024 ** 3) throw new Error('Генерация отложена: Windows не хватает свободной памяти.');
     this.generating = true;
     this.cancelRequested = false;
+    if (profile.family === 'ace-step') {
+      try {
+        return await this.aceRuntime.generate(profile, {
+          prompt, negativePrompt, durationSeconds, seed, outputPath,
+        });
+      } finally {
+        this.generating = false;
+      }
+    }
     const python = this.#pythonExecutable();
     const script = path.join(this.runtimeRoot, 'scripts', 'sa3_tflite.py');
     const threads = Math.min(8, Math.max(2, Math.floor((this.hardware?.logicalCores || os.cpus().length) / 2)));
@@ -197,6 +301,7 @@ class StableAudioRuntime {
   cancel() {
     this.cancelRequested = true;
     this.activeDownloadAbort?.abort();
+    this.aceRuntime.cancel();
     const child = this.activeProcess;
     if (!child || child.exitCode !== null) return;
     if (process.platform === 'win32') {
@@ -235,13 +340,15 @@ class StableAudioRuntime {
     await fsp.mkdir(extraction, { recursive: true });
     await this.#expandArchive(sourceZip, extraction);
     const sourceTflite = path.join(extraction, `stable-audio-3-${SOURCE_REVISION}`, 'optimized', 'tflite');
-    if (!fs.existsSync(path.join(sourceTflite, 'scripts', 'sa3_tflite.py'))) {
+    if (!fileHasContent(path.join(sourceTflite, 'scripts', 'sa3_tflite.py'))
+      || !fileHasContent(path.join(sourceTflite, TOKENIZER_RELATIVE_PATH))) {
       throw new Error('Архив Stable Audio 3 имеет неожиданную структуру.');
     }
     await this.#removeValidated(this.runtimeRoot, this.applicationSupportRoot);
     await fsp.mkdir(path.dirname(this.runtimeRoot), { recursive: true });
     await fsp.rename(sourceTflite, this.runtimeRoot);
     await this.#removeValidated(extraction, this.installerRoot);
+    await this.#patchTokenizerLoading();
 
     this.#progress('installing', 'Устанавливаю Python и LiteRT', 'Без изменения системного Python и PATH.', 0.34);
     const env = {
@@ -284,6 +391,7 @@ class StableAudioRuntime {
   }
 
   #requiredRelativePaths(profile) {
+    if (profile.family !== 'stable-audio') return [];
     const ditDirectory = profile.dit === 'medium' ? 'sa3-m' : 'sa3-sm-music';
     return [
       'models/tflite/t5gemma/encoder_fp16.tflite',
@@ -293,6 +401,7 @@ class StableAudioRuntime {
   }
 
   #profileIsInstalled(profile) {
+    if (profile.family === 'ace-step') return this.aceRuntime.isInstalled(profile);
     return this.#runtimeIsReady() && this.#requiredRelativePaths(profile)
       .every((relative) => {
         const candidate = path.join(this.runtimeRoot, ...relative.split('/'));
@@ -301,11 +410,12 @@ class StableAudioRuntime {
   }
 
   #otherInstalledModels(excludingId) {
-    return Object.values(MODEL_PROFILES).filter((profile) => profile.id !== excludingId && this.#profileIsInstalled(profile));
+    return Object.values(MODEL_PROFILES).filter((profile) =>
+      profile.family === 'stable-audio' && profile.id !== excludingId && this.#profileIsInstalled(profile));
   }
 
   #runtimeIsReady() {
-    return fs.existsSync(this.#pythonExecutable()) && fs.existsSync(path.join(this.runtimeRoot, 'scripts', 'sa3_tflite.py'));
+    return stableRuntimeHealth(this.runtimeRoot, this.#pythonExecutable()).ready;
   }
 
   #pythonExecutable() {
@@ -327,6 +437,47 @@ class StableAudioRuntime {
       TRANSFORMERS_OFFLINE: offline ? '1' : '0',
       TOKENIZERS_PARALLELISM: 'false',
     };
+  }
+
+  async #repairStableRuntimeCompatibility() {
+    const pipelinePath = path.join(this.runtimeRoot, 'models', 'defs', 'tflite_pipeline.py');
+    if (!fileHasContent(pipelinePath)) return;
+    await this.#patchTokenizerLoading();
+
+    const tokenizerPath = path.join(this.runtimeRoot, TOKENIZER_RELATIVE_PATH);
+    if (fileHasContent(tokenizerPath) || !this.#runtimeCanRepairTokenizer()) return;
+    this.#progress('repairing-runtime', 'Восстанавливаю текстовый модуль', 'Докачиваю обязательный файл Stable Audio 3.', 0.18);
+    await fsp.mkdir(path.dirname(tokenizerPath), { recursive: true });
+    const temporary = `${tokenizerPath}.download`;
+    await this.#downloadVerified(
+      TOKENIZER_REMOTE_URL, temporary, TOKENIZER_SHA256, 'официальный tokenizer Stable Audio 3', 0.22,
+    );
+    await fsp.rm(tokenizerPath, { force: true });
+    await fsp.rename(temporary, tokenizerPath);
+  }
+
+  async #patchTokenizerLoading() {
+    const pipelinePath = path.join(this.runtimeRoot, 'models', 'defs', 'tflite_pipeline.py');
+    if (!fileHasContent(pipelinePath)) return;
+    const source = await fsp.readFile(pipelinePath, 'utf8');
+    if (source.includes(TOKENIZER_COMPATIBILITY_MARKER)) return;
+    const original = '        self.sp = spm.SentencePieceProcessor()\n        self.sp.LoadFromFile(str(model_path))';
+    if (!source.includes(original)) {
+      throw new Error('Не удалось применить совместимость tokenizer для Windows. Переустановите модель.');
+    }
+    const replacement = `        self.sp = spm.SentencePieceProcessor()\n        self.sp.${TOKENIZER_COMPATIBILITY_MARKER}`;
+    const temporary = `${pipelinePath}.flowtone-new`;
+    await fsp.writeFile(temporary, source.replace(original, replacement), { encoding: 'utf8', mode: 0o600 });
+    await fsp.rm(pipelinePath, { force: true });
+    await fsp.rename(temporary, pipelinePath);
+  }
+
+  #runtimeCanRepairTokenizer() {
+    return [
+      this.#pythonExecutable(),
+      path.join(this.runtimeRoot, 'scripts', 'sa3_tflite.py'),
+      path.join(this.runtimeRoot, 'models', 'defs', 'tflite_pipeline.py'),
+    ].every(fileHasContent);
   }
 
   async #downloadVerified(url, destination, expectedHash, label, fraction) {
@@ -461,4 +612,36 @@ function sanitizeProcessError(value) {
     .replace(/\s+/g, ' ').trim().slice(-900);
 }
 
-module.exports = { MODEL_PROFILES, StableAudioRuntime, basicHardwareProfile, recommendModel };
+function fileHasContent(filePath) {
+  try { return fs.statSync(filePath).isFile() && fs.statSync(filePath).size > 0; } catch { return false; }
+}
+
+function stableRuntimeHealth(runtimeRoot, pythonExecutable = path.join(runtimeRoot, '.venv', 'Scripts', 'python.exe')) {
+  const required = [
+    ['Python', pythonExecutable],
+    ['скрипт генерации', path.join(runtimeRoot, 'scripts', 'sa3_tflite.py')],
+    ['tokenizer.model', path.join(runtimeRoot, TOKENIZER_RELATIVE_PATH)],
+    ['модуль tokenizer', path.join(runtimeRoot, 'models', 'defs', 'tflite_pipeline.py')],
+  ];
+  const missingFiles = required.filter(([, filePath]) => !fileHasContent(filePath)).map(([label]) => label);
+  const pipelinePath = path.join(runtimeRoot, 'models', 'defs', 'tflite_pipeline.py');
+  if (!missingFiles.includes('модуль tokenizer')) {
+    try {
+      if (!fs.readFileSync(pipelinePath, 'utf8').includes(TOKENIZER_COMPATIBILITY_MARKER)) {
+        missingFiles.push('совместимость пути Windows');
+      }
+    } catch {
+      missingFiles.push('совместимость пути Windows');
+    }
+  }
+  return {
+    ready: missingFiles.length === 0,
+    repairNeeded: fs.existsSync(runtimeRoot) && missingFiles.length > 0,
+    missingFiles,
+  };
+}
+
+module.exports = {
+  MODEL_GROUPS, MODEL_PROFILES, StableAudioRuntime, basicHardwareProfile, recommendGroup, recommendModel,
+  stableRuntimeHealth,
+};

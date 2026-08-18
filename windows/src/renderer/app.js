@@ -17,6 +17,7 @@ const state = {
   isGenerating: false,
   isWindowVisible: true,
   libraryFilter: 'all',
+  libraryGenreFilter: null,
   libraryTab: 'tracks',
   visualAngleOffset: 0,
   draggingVinyl: false,
@@ -331,10 +332,16 @@ function bindEvents() {
   $$('[data-energy]').forEach((button) => button.addEventListener('click', () => saveSettings({ energy: button.dataset.energy })));
   elements.mood.addEventListener('change', () => saveSettings({ mood: elements.mood.value }));
   let vibeTimer;
+  const persistVibe = () => {
+    clearTimeout(vibeTimer);
+    if (elements.vibe.value !== state.settings.vibe) saveSettings({ vibe: elements.vibe.value });
+  };
   elements.vibe.addEventListener('input', () => {
     clearTimeout(vibeTimer);
-    vibeTimer = setTimeout(() => saveSettings({ vibe: elements.vibe.value }), 350);
+    vibeTimer = setTimeout(persistVibe, 350);
   });
+  elements.vibe.addEventListener('change', persistVibe);
+  elements.vibe.addEventListener('blur', persistVibe);
   elements.generation.addEventListener('change', async () => {
     await saveSettings({ generationEnabled: elements.generation.checked });
     if (!elements.generation.checked) {
@@ -391,6 +398,10 @@ function bindEvents() {
     state.libraryFilter = button.dataset.libraryFilter;
     renderLibrary();
   }));
+  $('#library-genre-filter').addEventListener('click', () => {
+    state.libraryGenreFilter = null;
+    renderLibrary(true);
+  });
   $('#cleanup-library').addEventListener('click', requestCleanup);
   $('#storage-limit').addEventListener('change', () => saveSettings({ storageLimitGiB: Number($('#storage-limit').value) }));
 
@@ -547,12 +558,24 @@ function renderLibrary(force = false) {
   $$('[data-library-filter]').forEach((button) => button.classList.toggle('active', button.dataset.libraryFilter === state.libraryFilter));
   $('#library-tracks-view').hidden = state.libraryTab !== 'tracks';
   $('#library-statistics-view').hidden = state.libraryTab !== 'statistics';
-  const filtered = state.tracks.filter((track) => state.libraryFilter !== 'liked' || track.isLiked);
+  const filtered = state.tracks.filter((track) => {
+    const matchesLiked = state.libraryFilter !== 'liked' || track.isLiked;
+    const matchesGenre = !state.libraryGenreFilter
+      || (Array.isArray(track.genres) && track.genres.includes(state.libraryGenreFilter));
+    return matchesLiked && matchesGenre;
+  });
+  const genreFilter = $('#library-genre-filter');
+  genreFilter.hidden = !state.libraryGenreFilter;
+  genreFilter.textContent = state.libraryGenreFilter
+    ? `Жанр: ${state.genreLabels[state.libraryGenreFilter] || state.libraryGenreFilter} ×`
+    : '';
   const list = $('#track-list');
   if (!filtered.length) {
     const empty = document.createElement('div');
     empty.className = 'empty-library';
-    empty.textContent = state.libraryFilter === 'liked' ? 'Любимых записей пока нет' : 'Локальная коллекция пока пуста';
+    empty.textContent = state.libraryGenreFilter
+      ? 'В этой категории нет треков'
+      : state.libraryFilter === 'liked' ? 'Любимых записей пока нет' : 'Локальная коллекция пока пуста';
     list.replaceChildren(empty);
   } else {
     list.replaceChildren(...filtered.map(trackRow));
@@ -562,12 +585,19 @@ function renderLibrary(force = false) {
   $('#metric-size').textContent = formatBytes(state.statistics.byteSize);
   $('#storage-limit').value = state.settings.storageLimitGiB;
   $('#genre-statistics').replaceChildren(...state.statistics.genres.map((item) => {
-    const article = document.createElement('article');
+    const article = document.createElement('button');
+    article.type = 'button';
     const title = document.createElement('span');
     title.textContent = state.genreLabels[item.genre] || item.genre;
     const value = document.createElement('span');
     value.textContent = `${item.trackCount} · ${formatBytes(item.byteSize)}`;
     article.append(title, value);
+    article.addEventListener('click', () => {
+      state.libraryGenreFilter = item.genre;
+      state.libraryFilter = 'all';
+      state.libraryTab = 'tracks';
+      renderLibrary(true);
+    });
     return article;
   }));
 }
@@ -611,34 +641,74 @@ function renderModelManager() {
   }
   preference.value = state.settings.modelPreference;
   const recommended = state.runtime.models.find((model) => model.id === state.runtime.recommendedModel);
-  $('#recommendation-text').textContent = `Автоподбор рекомендует «${recommended?.title}». Flowtone определил GPU, но официальный Windows runtime использует оптимизированный CPU-путь LiteRT, поэтому выбор основан на RAM и CPU.`;
+  $('#recommendation-text').textContent = `Автоподбор рекомендует «${recommended?.title}». Flowtone учитывает ${state.hardware.memoryGiB} ГБ RAM, ${state.hardware.logicalCores} потоков CPU и ${state.hardware.gpuMemoryGiB || 0} ГБ видеопамяти. ACE-Step автоматически выбирается только для подходящей NVIDIA GPU; иначе используется надёжный LiteRT CPU-путь.`;
   $('#acknowledge-terms').hidden = state.settings.termsAcknowledged;
   $('#terms-confirmed').hidden = !state.settings.termsAcknowledged;
   $('#runtime-path').textContent = state.runtime.runtimePath;
-  $('#model-list').replaceChildren(...state.runtime.models.map((model) => {
-    const installed = state.runtime.installedModels.includes(model.id);
-    const option = document.createElement('article');
-    option.className = `model-option${model.id === state.runtime.recommendedModel ? ' recommended' : ''}`;
-    const info = document.createElement('div');
-    const title = document.createElement('strong');
-    title.textContent = model.title;
-    if (model.id === state.runtime.recommendedModel) { const tag = document.createElement('em'); tag.textContent = 'РЕКОМЕНДОВАНА'; title.append(tag); }
-    const detail = document.createElement('p'); detail.textContent = `${model.detail} · около ${model.estimatedGiB.toLocaleString('ru-RU')} ГБ`;
-    info.append(title, detail);
-    const action = document.createElement('button'); action.type = 'button';
-    action.textContent = installed ? 'Удалить' : 'Установить';
-    if (installed) action.classList.add('uninstall');
-    action.addEventListener('click', () => installed ? requestModelUninstall(model) : installModel(model.id));
-    info.dataset.installed = installed;
-    option.append(info, action);
-    return option;
+  if (state.runtime.stableRuntimeRepairNeeded) {
+    $('#model-error').textContent = 'Старая установка Stable Audio неполная. Нажмите «Восстановить» у нужной модели — сохранённые треки не пострадают.';
+    $('#model-error').hidden = false;
+  }
+  const groups = state.runtime.modelGroups || [];
+  $('#model-list').replaceChildren(...groups.map((group) => {
+    const section = document.createElement('section');
+    section.className = `model-power-group${group.id === state.runtime.recommendedGroup ? ' current' : ''}`;
+    const header = document.createElement('header');
+    const heading = document.createElement('div');
+    const name = document.createElement('strong'); name.textContent = group.title;
+    const requirement = document.createElement('small'); requirement.textContent = group.requirement;
+    heading.append(name, requirement); header.append(heading);
+    if (group.id === state.runtime.recommendedGroup) {
+      const current = document.createElement('em'); current.textContent = 'ЭТОТ ПК'; header.append(current);
+    }
+    const cards = document.createElement('div'); cards.className = 'model-group-cards';
+    for (const modelId of group.modelIds) {
+      const model = state.runtime.models.find((item) => item.id === modelId);
+      if (!model) continue;
+      const installed = state.runtime.installedModels.includes(model.id);
+      const connected = state.runtime.connectedModel === model.id;
+      const option = document.createElement('article');
+      option.className = `model-option${model.id === state.runtime.recommendedModel ? ' recommended' : ''}${connected ? ' connected' : ''}`;
+      const info = document.createElement('div');
+      const title = document.createElement('strong'); title.textContent = model.title;
+      if (model.id === state.runtime.recommendedModel) { const tag = document.createElement('em'); tag.textContent = 'АВТОВЫБОР'; title.append(tag); }
+      if (model.ambitious) { const tag = document.createElement('em'); tag.textContent = 'АМБИЦИОЗНАЯ'; title.append(tag); }
+      if (connected) { const tag = document.createElement('em'); tag.textContent = 'ПОДКЛЮЧЕНА'; title.append(tag); }
+      const detail = document.createElement('p'); detail.textContent = `${model.detail} · около ${model.estimatedGiB.toLocaleString('ru-RU')} ГБ`;
+      const better = document.createElement('p'); better.className = 'model-better'; better.textContent = `＋ ${model.better}`;
+      const worse = document.createElement('p'); worse.className = 'model-worse'; worse.textContent = `− ${model.worse}`;
+      info.append(title, detail, better, worse);
+      const actions = document.createElement('div'); actions.className = 'model-actions';
+      if (installed) {
+        if (!connected) {
+          const connect = document.createElement('button'); connect.type = 'button'; connect.textContent = 'Подключить';
+          connect.addEventListener('click', () => connectModel(model.id)); actions.append(connect);
+        }
+        const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = 'Удалить'; remove.classList.add('uninstall');
+        remove.addEventListener('click', () => requestModelUninstall(model)); actions.append(remove);
+      } else {
+        const install = document.createElement('button'); install.type = 'button';
+        install.textContent = model.family === 'stable-audio' && state.runtime.stableRuntimeRepairNeeded
+          ? 'Восстановить' : 'Установить';
+        install.addEventListener('click', () => installModel(model.id)); actions.append(install);
+      }
+      info.dataset.installed = installed;
+      option.append(info, actions); cards.append(option);
+    }
+    section.append(header, cards);
+    return section;
   }));
   const busy = state.runtime.installing || state.runtime.generating;
   $('#model-preference').disabled = busy;
   $('#model-list').querySelectorAll('button').forEach((button) => { button.disabled = busy; });
 }
 
-function openLibrary() { openModal(elements.libraryModal); renderLibrary(true); }
+function openLibrary() {
+  state.libraryTab = 'tracks';
+  state.libraryGenreFilter = null;
+  openModal(elements.libraryModal);
+  renderLibrary(true);
+}
 
 function openModal(modal) {
   closeModals();
@@ -886,6 +956,16 @@ async function installModel(modelId) {
     $('#model-progress').hidden = true;
     renderModelManager(); renderBadges();
   }
+}
+
+async function connectModel(modelId) {
+  try {
+    const result = await saveSettings({ modelPreference: modelId });
+    state.runtime = result.runtime;
+    renderModelManager(); renderBadges();
+    showToast('Модель подключена.');
+    scheduleAutomaticGeneration();
+  } catch (error) { showToast(userMessage(error)); }
 }
 
 async function requestModelUninstall(model) {

@@ -4,74 +4,64 @@ import Testing
 @testable import FlowtoneCore
 
 @Suite struct ModelRuntimeCatalogTests {
-  @Test func lightTierIsUnavailableWhenRuntimeIsMissing() throws {
+  @Test func tiersAreUnavailableWhenRuntimeIsMissing() throws {
     let root = try makeTemporaryRoot()
     defer { try? FileManager.default.removeItem(at: root) }
-
     let catalog = ModelRuntimeCatalog(applicationSupportRoot: root)
 
-    #expect(
-      catalog.availability(for: .light)
-        == .unavailable(
-          reason:
-            "Stable Audio 3 ещё не установлена. Откройте настройку модели, чтобы скачать и подключить её автоматически."
-        )
-    )
-    #expect(catalog.stableAudioEngine() == nil)
+    for tier in ModelTier.allCases {
+      let title = StableAudioModelProfile.profile(for: tier).title
+      #expect(
+        catalog.availability(for: tier)
+          == .unavailable(
+            reason: "\(title) не установлена. Откройте «Модели», чтобы скачать её на этот Mac."
+          ))
+      #expect(catalog.stableAudioEngine(for: tier) == nil)
+    }
+    #expect(catalog.installedModelTiers.isEmpty)
     #expect(!catalog.hasStableAudioExecutable)
   }
 
-  @Test func lightTierUsesInstalledExecutable() throws {
+  @Test func catalogDetectsAndBuildsEachInstalledEngine() throws {
     let root = try makeTemporaryRoot()
     defer { try? FileManager.default.removeItem(at: root) }
-    let executableURL = root.appendingPathComponent(ModelRuntimeCatalog.stableAudioExecutableName)
-    try "#!/bin/sh\nexit 0\n".write(to: executableURL, atomically: true, encoding: .utf8)
-    try FileManager.default.setAttributes(
-      [.posixPermissions: 0o755],
-      ofItemAtPath: executableURL.path
-    )
+    let manifest = StableAudioInstallationManifest(applicationSupportRoot: root)
+    try makeExecutable(manifest.launcherURL)
+    try makeExecutable(manifest.mlxRoot.appendingPathComponent("sa3"))
+    try makeExecutable(manifest.mlxRoot.appendingPathComponent(".venv/bin/python"))
+    try writeWeights(manifest.modelWeightURLs(for: .quality))
 
     let catalog = ModelRuntimeCatalog(applicationSupportRoot: root)
 
-    #expect(catalog.availability(for: .light) == .available)
-    #expect(catalog.stableAudioEngine()?.executableURL == executableURL)
-    #expect(catalog.hasStableAudioExecutable)
+    #expect(catalog.availability(for: .quality) == .available)
+    #expect(catalog.availability(for: .light) != .available)
+    #expect(catalog.stableAudioEngine(for: .quality)?.descriptor.tier == .quality)
+    #expect(catalog.stableAudioEngine(for: .quality)?.executableURL == manifest.launcherURL)
+    #expect(catalog.installedModelTiers == [.quality])
   }
 
-  @Test func lightTierRejectsNonExecutableRuntime() throws {
+  @Test func nonExecutableLauncherKeepsModelsUnavailable() throws {
     let root = try makeTemporaryRoot()
     defer { try? FileManager.default.removeItem(at: root) }
-    let executableURL = root.appendingPathComponent(ModelRuntimeCatalog.stableAudioExecutableName)
-    try Data().write(to: executableURL)
+    let manifest = StableAudioInstallationManifest(applicationSupportRoot: root)
+    try FileManager.default.createDirectory(
+      at: manifest.launcherURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try Data().write(to: manifest.launcherURL)
     try FileManager.default.setAttributes(
       [.posixPermissions: 0o644],
-      ofItemAtPath: executableURL.path
+      ofItemAtPath: manifest.launcherURL.path
     )
+    try makeExecutable(manifest.mlxRoot.appendingPathComponent("sa3"))
+    try makeExecutable(manifest.mlxRoot.appendingPathComponent(".venv/bin/python"))
+    try writeWeights(manifest.modelWeightURLs(for: .light))
 
     let catalog = ModelRuntimeCatalog(applicationSupportRoot: root)
 
-    #expect(
-      catalog.availability(for: .light)
-        == .unavailable(
-          reason:
-            "Stable Audio 3 ещё не установлена. Откройте настройку модели, чтобы скачать и подключить её автоматически."
-        )
-    )
+    #expect(catalog.availability(for: .light) != .available)
     #expect(catalog.stableAudioEngine() == nil)
     #expect(!catalog.hasStableAudioExecutable)
-  }
-
-  @Test func qualityTierIsExplicitlyUnsupported() throws {
-    let root = try makeTemporaryRoot()
-    defer { try? FileManager.default.removeItem(at: root) }
-
-    let catalog = ModelRuntimeCatalog(applicationSupportRoot: root)
-
-    #expect(
-      catalog.availability(for: .quality)
-        == .unsupported(
-          reason: "Режим качества недоступен: адаптер ACE-Step ещё не подключён."
-        ))
   }
 
   private func makeTemporaryRoot() throws -> URL {
@@ -81,4 +71,22 @@ import Testing
     return root
   }
 
+  private func makeExecutable(_ url: URL) throws {
+    try FileManager.default.createDirectory(
+      at: url.deletingLastPathComponent(),
+      withIntermediateDirectories: true
+    )
+    try Data("#!/bin/sh\nexit 0\n".utf8).write(to: url)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+  }
+
+  private func writeWeights(_ urls: [URL]) throws {
+    for url in urls {
+      try FileManager.default.createDirectory(
+        at: url.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      try Data([1]).write(to: url)
+    }
+  }
 }

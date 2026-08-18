@@ -70,7 +70,7 @@ SwiftUI-таймер только вызывает наблюдение за ren
 
 `GenrePromptCatalog` задаёт ритм, тембры и фактуру 350 автоматических звуковых профилей для 29 жанров. Каждый жанр имеет минимум десять профилей; Synthwave имеет 30, Pirate и Space Rock — по 16. `GenreMixPlanner` детерминированно выбирает по seed от двух до пяти разных активных жанров, а `PromptComposer` сохраняет первый жанр ведущим по ритму и форме.
 
-Player поддерживает seek, начало/конец, ±15 секунд, previous/next по session history, случайный порядок и запуск выбранного трека из коллекции. Vinyl drag перемещает ту же audio position; forward/reverse preview использует чередующиеся player nodes, короткие PCM-буферы с envelope и varispeed. Пластинка вращается через видимый 60-Гц timeline, останавливается на pause и не перерисовывается в невидимом или свёрнутом окне; тонарм идёт к центру по реальному progress.
+Player поддерживает seek, начало/конец, ±15 секунд, previous/next по session history, случайный порядок и запуск выбранного трека из коллекции. Genre cards в статистике переключают архив на отфильтрованные треки и показывают сбрасываемый genre chip. Vinyl drag перемещает ту же audio position; forward/reverse preview использует чередующиеся player nodes, короткие PCM-буферы с envelope и varispeed. Пластинка вращается через видимый 60-Гц timeline, останавливается на pause и не перерисовывается в невидимом или свёрнутом окне; тонарм идёт к центру по реальному progress.
 
 ## Resource and rendering policy
 
@@ -95,9 +95,13 @@ Windows-приложение находится в `windows/` и воспрои�
 | Medium · оптимальная | 24+ ГБ, 12+ потоков | `medium` / `same-l` / `w8a32` |
 | Medium · максимум | 32+ ГБ, 16+ потоков | `medium` / `same-l` / `fp32` |
 
-GPU определяется и показывается пользователю, но не повышает tier: официальный portable runtime этого варианта использует CPU. Рекомендацию можно изменить вручную. Установка автоматически подключает выбранный профиль; удаление не затрагивает музыкальную коллекцию и переключает приложение на другую установленную модель, если она есть.
+GPU определяется и показывается пользователю. Без подходящей NVIDIA автовыбор остаётся на portable Stable Audio CPU/LiteRT; при NVIDIA с 6/12/24 ГБ VRAM он может повыситься до ACE-Step Lite/Pro/Max. Рекомендацию можно изменить вручную. Установка автоматически подключает выбранный профиль; удаление не затрагивает музыкальную коллекцию и переключает приложение на другую установленную модель, если она есть.
+
+macOS перед активацией нового экземпляра завершает другую запущенную Flowtone с bundle identifier `com.flowtone.app`; Windows использует Electron single-instance lock.
 
 Runtime и `uv` закреплены по версии и SHA-256. Managed Python 3.11, LiteRT, Hugging Face cache и веса находятся в пользовательской папке Flowtone. После установки generation process работает offline, запускается строго по одному и завершается после каждого трека. При нехватке памяти или уходе Windows в сон process tree отменяется.
+
+Миграция с Windows `v1.1.1` отдельно проверяет `models/tokenizer.model`, который upstream считает bundled и поэтому не включает в weight manifest. Если старый runtime содержит Python и скрипты, но tokenizer потерян, Flowtone докачивает только официальный файл из закреплённой source revision и проверяет его SHA-256. Загрузчик SentencePiece патчится на `LoadFromSerializedProto(model_path.read_bytes())`, поэтому нативная библиотека не открывает путь с кириллическим именем профиля. Неполная установка не подключается; в Model Manager появляется действие «Восстановить».
 
 Видимая пластинка обновляется с целевой частотой 60 Гц, как на macOS. Цикл перерисовки полностью останавливается на паузе, при сворачивании и скрытии окна. Заголовок обновляется не чаще 15 Гц; аудио и фоновая генерация не зависят от UI animation loop.
 
@@ -113,7 +117,7 @@ npm start
 
 Windows installer собирается командой `npm run dist:win`. В CI сборка выполняется на `windows-latest`, что проверяет настоящий NSIS `.exe`, а не кросс-сборку с macOS.
 
-## Stable Audio 3 Small MLX
+## Stable Audio MLX и ACE-Step 1.5
 
 Flowtone следует официальному [`optimized/mlx`](https://github.com/Stability-AI/stable-audio-3/tree/main/optimized/mlx) runtime. Adapter запускает executable напрямую через `Process`; prompt не передаётся shell и не интерполируется.
 
@@ -121,7 +125,7 @@ Flowtone следует официальному [`optimized/mlx`](https://githu
 
 1. Откройте [Stable Audio 3 Small-Music на Hugging Face](https://huggingface.co/stabilityai/stable-audio-3-small-music), [optimized MLX bundle](https://huggingface.co/stabilityai/stable-audio-3-optimized), [Stable Audio Community License](https://stability.ai/license) и [Gemma Terms](https://ai.google.dev/gemma/terms).
 2. Лично прочитайте и примите применимые условия. Локальная отметка Flowtone подтверждает только это действие и не принимает внешние terms от имени пользователя.
-3. Нажмите «Скачать и подключить». Flowtone скачает только Small-Music MLX stack (около 2 ГБ), проверит установочные archives и автоматически включит generation.
+3. Выберите профиль и нажмите «Скачать и подключить». Flowtone проверит установочные archives, установит выбранный runtime и автоматически подключит его после завершения.
 
 Installer не просит и не хранит Hugging Face token: официальный `stabilityai/stable-audio-3-optimized` bundle доступен для anonymous download, но остаётся под Stability AI Community License и Gemma Terms. Ни токен, ни пользовательские prompts не записываются в installation log.
 
@@ -141,7 +145,7 @@ Supply-chain contract:
 ~/Library/Application Support/Flowtone/stable-audio-mlx
 ```
 
-Автоматическая установка поддерживает только Apple Silicon и требует не менее 4 ГБ свободного места на время setup. ACE-Step quality tier остаётся отдельной будущей реализацией и не скачивается скрыто.
+На macOS автоматическая установка поддерживает Apple Silicon. Stable Audio требует не менее 4 ГБ свободного места; ACE-Step — от 10 до 27 ГБ в зависимости от профиля. ACE-Step устанавливается из официального source revision `14c0211d5a0653b0f63e27686f4c3f151b4d8629` в отдельное окружение и использует только локальный API. Общая база моделей загружается один раз, а языковые и XL-компоненты добавляются только для выбранного профиля. На Windows автоподбор учитывает RAM, CPU и видеопамять NVIDIA; без подходящей NVIDIA базовым остаётся стабильный CPU/LiteRT-профиль.
 
 Для разработки с уже установленным runtime:
 
@@ -180,7 +184,7 @@ scripts/benchmark-stable-audio.sh \
 
 Release-приложение не включает synthetic fallback. Если executable отсутствует или не имеет права
 на запуск, интерфейс честно показывает, что Stable Audio 3 не установлена, и продолжает играть
-готовую локальную коллекцию. Quality tier пока показывает явный статус отсутствующего ACE-Step adapter.
+готовую локальную коллекцию. Для ACE-Step используется отдельный локальный helper process; prompt передаётся JSON-запросом, а не командной строкой shell.
 
 Официальный CLI contract, который формирует adapter:
 
@@ -195,7 +199,7 @@ sa3 --prompt <prompt> --negative-prompt <negative> \
 - Полный Xcode не установлен; SwiftPM build/test работает через Command Line Tools.
 - Веса не входят в Git/сборку. На тестовом M4/16 ГБ official Small-Music MLX runtime установлен вне репозитория; offline 30-second benchmark прошёл за 7.68 с process wall / 4.81 с model wall с stage peak 1.69 ГБ.
 - Есть automatic verified installer для public optimized Small-Music MLX bundle; локальная UI-отметка не принимает external terms. Model weights не bundled, token не требуется и не хранится.
-- ACE-Step quality adapter ещё не реализован.
+- ACE-Step adapter и установка реализованы, но тяжёлые профили ещё требуют hardware beta на поддерживаемых Mac и Windows PC.
 - Скрипт создаёт `.app`, затем целиком ad-hoc подписывает готовый bundle и запускает strict deep verification. Developer ID signing/notarization остаются вне scope и требуют credentials.
 - Системная memory-pressure защита подключена через `DispatchSource`; её пороги остаются системными.
 - `leaks` smoke на работающем debug-приложении показал стабильные 24 272 байта после повторного замера через 10 секунд; app-owned Flowtone frames в отчёте не обнаружены, оставшиеся roots относятся к SwiftUI/AVFoundation listener bindings.
@@ -204,7 +208,7 @@ sa3 --prompt <prompt> --negative-prompt <negative> \
 ## Next implementation slice
 
 1. Проверить лёгкий runtime на M1/M2 с 8–16 ГБ.
-2. Проверить ACE-Step adapter для quality tier.
+2. Измерить ACE-Step Turbo/Lite/Pro/Max на реальном наборе GPU и подтвердить границы автоподбора.
 3. Developer ID signing/notarization остаются вне scope ad-hoc repository artifact; рассмотреть их только после отдельного решения владельца и получения credentials.
 
 ## Unsigned app bundle
@@ -216,4 +220,4 @@ open /tmp/flowtone-package/Flowtone.app
 
 Скрипт отказывается перезаписывать существующий bundle, включает `Assets/AppIcon.icns`, выполняет ad-hoc signing после добавления resources и не выполняет Developer ID signing/notarization.
 
-При каждом `push` CI проверяет macOS и Windows и сохраняет временные artifacts. Тег вида `v1.1.1` создаёт GitHub Release с постоянными файлами `Flowtone-macOS-arm64.zip`, `Flowtone-Setup-Windows-x64.exe` и отдельными SHA-256. Ни `.app`, ни `.exe`, ни ZIP в Git не коммитятся.
+При каждом `push` CI проверяет macOS и Windows и сохраняет временные artifacts. Тег вида `v1.2.0` создаёт GitHub Release с постоянными файлами `Flowtone-macOS-arm64.zip`, `Flowtone-Setup-Windows-x64.exe` и отдельными SHA-256. Ни `.app`, ни `.exe`, ни ZIP в Git не коммитятся.

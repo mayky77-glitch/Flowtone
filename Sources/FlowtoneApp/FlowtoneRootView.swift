@@ -6,6 +6,7 @@ import SwiftUI
 struct FlowtoneRootView: View {
   @ObservedObject var model: FlowtoneAppModel
   @State private var isWindowVisible = true
+  @State private var windowSize = CGSize(width: 1_080, height: 720)
   private let playbackPulse = Timer.publish(every: 0.1, on: .main, in: .common).autoconnect()
 
   var body: some View {
@@ -36,13 +37,17 @@ struct FlowtoneRootView: View {
             .fill(FlowtonePalette.line)
             .frame(width: 1)
 
-          NowPlayingStage(model: model, isWindowVisible: isWindowVisible)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+          NowPlayingStage(
+            model: model,
+            isWindowVisible: isWindowVisible,
+            availableWindowSize: windowSize
+          )
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
       }
     }
     .sheet(isPresented: $model.isLibraryPresented) {
-      TrackLibraryView(model: model)
+      TrackLibraryView(model: model, availableWindowSize: windowSize)
     }
     .alert("Хранилище Flowtone заполнено", isPresented: $model.isStorageLimitAlertPresented) {
       Button("Открыть архив") { model.showLibrary(filter: .all) }
@@ -63,8 +68,11 @@ struct FlowtoneRootView: View {
       Text(model.currentDeleteConfirmationMessage)
     }
     .background {
-      WindowVisibilityObserver { isWindowVisible = $0 }
-        .frame(width: 0, height: 0)
+      WindowVisibilityObserver(
+        onVisibilityChange: { isWindowVisible = $0 },
+        onSizeChange: { windowSize = $0 }
+      )
+      .frame(width: 0, height: 0)
     }
     .onReceive(playbackPulse) { _ in
       model.updatePlayback(publishUI: isWindowVisible)
@@ -312,6 +320,7 @@ private struct GenreChip: View {
 private struct NowPlayingStage: View {
   @ObservedObject var model: FlowtoneAppModel
   let isWindowVisible: Bool
+  let availableWindowSize: CGSize
   @State private var isModelSetupPresented = false
 
   var body: some View {
@@ -397,24 +406,42 @@ private struct NowPlayingStage: View {
       }
     }
     .sheet(isPresented: $isModelSetupPresented) {
-      StableAudioSetupSheet(model: model)
-        .frame(minWidth: 560, idealWidth: 620, minHeight: 500, idealHeight: 650)
+      StableAudioSetupSheet(model: model, availableWindowSize: availableWindowSize)
     }
   }
 
   private var modelBadge: some View {
     VStack(alignment: .leading, spacing: 4) {
-      Text("МОДЕЛЬ ГЕНЕРАЦИИ")
-        .font(.system(size: 9, weight: .semibold, design: .monospaced))
-        .tracking(1.1)
-        .foregroundStyle(FlowtonePalette.muted)
-      Picker("", selection: $model.selectedModelTier) {
-        Text("Лёгкая · Stable Audio 3 Small").tag(ModelTier.light)
-        Text("Качество · ACE-Step (не подключён)").tag(ModelTier.quality)
+      Button {
+        isModelSetupPresented = true
+      } label: {
+        HStack(spacing: 10) {
+          Image(systemName: "cpu")
+            .font(.system(size: 15, weight: .medium))
+            .foregroundStyle(FlowtonePalette.signal)
+            .frame(width: 28, height: 28)
+            .background(FlowtonePalette.signal.opacity(0.1), in: Circle())
+
+          VStack(alignment: .leading, spacing: 3) {
+            Text("МОДЕЛИ")
+              .font(.system(size: 9, weight: .semibold, design: .monospaced))
+              .tracking(1.1)
+              .foregroundStyle(FlowtonePalette.muted)
+            Text(model.selectedModelText)
+              .font(.system(size: 11, weight: .semibold, design: .rounded))
+              .foregroundStyle(FlowtonePalette.ink)
+              .lineLimit(1)
+          }
+
+          Spacer(minLength: 4)
+          Image(systemName: "chevron.right")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(FlowtonePalette.signal)
+        }
+        .contentShape(Rectangle())
       }
-      .labelsHidden()
-      .pickerStyle(.menu)
-      .fixedSize()
+      .buttonStyle(.plain)
+      .accessibilityLabel("Открыть модели. Выбрана \(model.selectedModelText)")
 
       if let warning = model.selectedModelWarning {
         Text(warning)
@@ -432,15 +459,6 @@ private struct NowPlayingStage: View {
         .fixedSize(horizontal: false, vertical: true)
         .frame(maxWidth: 300, alignment: .leading)
 
-      if model.selectedModelTier == .light {
-        Button("Настроить модель") {
-          isModelSetupPresented = true
-        }
-        .font(.system(size: 9, weight: .semibold, design: .rounded))
-        .buttonStyle(.bordered)
-        .tint(FlowtonePalette.signal)
-        .accessibilityHint("Откроет настройку Stable Audio 3 Small")
-      }
     }
     .frame(width: 300, alignment: .leading)
     .padding(.horizontal, 14)
@@ -500,9 +518,15 @@ private struct NowPlayingStage: View {
 }
 
 private struct WindowVisibilityObserver: NSViewRepresentable {
-  let onChange: (Bool) -> Void
+  let onVisibilityChange: (Bool) -> Void
+  let onSizeChange: (CGSize) -> Void
 
-  func makeCoordinator() -> Coordinator { Coordinator(onChange: onChange) }
+  func makeCoordinator() -> Coordinator {
+    Coordinator(
+      onVisibilityChange: onVisibilityChange,
+      onSizeChange: onSizeChange
+    )
+  }
 
   func makeNSView(context: Context) -> NSView {
     let view = NSView(frame: .zero)
@@ -511,7 +535,8 @@ private struct WindowVisibilityObserver: NSViewRepresentable {
   }
 
   func updateNSView(_ view: NSView, context: Context) {
-    context.coordinator.onChange = onChange
+    context.coordinator.onVisibilityChange = onVisibilityChange
+    context.coordinator.onSizeChange = onSizeChange
     DispatchQueue.main.async { context.coordinator.attach(to: view.window) }
   }
 
@@ -521,17 +546,22 @@ private struct WindowVisibilityObserver: NSViewRepresentable {
 
   @MainActor
   final class Coordinator: @unchecked Sendable {
-    var onChange: (Bool) -> Void
+    var onVisibilityChange: (Bool) -> Void
+    var onSizeChange: (CGSize) -> Void
     private weak var window: NSWindow?
     private var observers: [NSObjectProtocol] = []
 
-    init(onChange: @escaping (Bool) -> Void) {
-      self.onChange = onChange
+    init(
+      onVisibilityChange: @escaping (Bool) -> Void,
+      onSizeChange: @escaping (CGSize) -> Void
+    ) {
+      self.onVisibilityChange = onVisibilityChange
+      self.onSizeChange = onSizeChange
     }
 
     func attach(to window: NSWindow?) {
       guard let window, self.window !== window else {
-        reportVisibility()
+        reportWindowState()
         return
       }
       detach()
@@ -541,13 +571,14 @@ private struct WindowVisibilityObserver: NSViewRepresentable {
         NSWindow.didChangeOcclusionStateNotification,
         NSWindow.didMiniaturizeNotification,
         NSWindow.didDeminiaturizeNotification,
+        NSWindow.didResizeNotification,
       ]
       observers = names.map { name in
         center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-          Task { @MainActor [weak self] in self?.reportVisibility() }
+          Task { @MainActor [weak self] in self?.reportWindowState() }
         }
       }
-      reportVisibility()
+      reportWindowState()
     }
 
     func detach() {
@@ -557,12 +588,13 @@ private struct WindowVisibilityObserver: NSViewRepresentable {
       window = nil
     }
 
-    private func reportVisibility() {
+    private func reportWindowState() {
       guard let window else {
-        onChange(false)
+        onVisibilityChange(false)
         return
       }
-      onChange(window.occlusionState.contains(.visible) && !window.isMiniaturized)
+      onVisibilityChange(window.occlusionState.contains(.visible) && !window.isMiniaturized)
+      onSizeChange(window.frame.size)
     }
   }
 }
@@ -826,9 +858,13 @@ private struct PlaybackConsole: View {
   }
 }
 
-private struct StableAudioSetupSheet: View {
+struct StableAudioSetupSheet: View {
   @ObservedObject var model: FlowtoneAppModel
+  var availableWindowSize = CGSize(width: 1_080, height: 720)
   @Environment(\.dismiss) private var dismiss
+  @State private var pendingRemoval: MusicModelID?
+  @State private var confirmsRemoval = false
+  @FocusState private var closeButtonFocused: Bool
 
   var body: some View {
     ZStack {
@@ -840,52 +876,55 @@ private struct StableAudioSetupSheet: View {
       .ignoresSafeArea()
 
       VStack(spacing: 0) {
-        HStack(alignment: .top, spacing: 16) {
-          VStack(alignment: .leading, spacing: 5) {
-            Text("НАСТРОЙКА МОДЕЛИ")
-              .font(.system(size: 10, weight: .semibold, design: .monospaced))
-              .tracking(1.2)
-              .foregroundStyle(FlowtonePalette.signal)
-            Text("Stable Audio 3 Small")
-              .font(.system(size: 25, weight: .medium, design: .serif))
-              .foregroundStyle(FlowtonePalette.ink)
-            Text("Автоматическая установка и подключение")
-              .font(.system(size: 12, design: .rounded))
-              .foregroundStyle(FlowtonePalette.muted)
-          }
-
-          Spacer()
-
-          Button(action: { dismiss() }) {
-            Label("Закрыть", systemImage: "xmark")
-              .labelStyle(.iconOnly)
-              .frame(width: 32, height: 32)
-          }
-          .buttonStyle(.bordered)
-          .tint(FlowtonePalette.signal)
-          .accessibilityLabel("Закрыть настройку модели")
-          .accessibilityHint("Также можно нажать Escape")
-        }
-        .padding(.horizontal, 28)
-        .padding(.top, 26)
-        .padding(.bottom, 18)
-
-        Rectangle()
-          .fill(FlowtonePalette.line)
-          .frame(height: 1)
+        FlowtoneSheetHeader(
+          eyebrow: "ЛОКАЛЬНАЯ ГЕНЕРАЦИЯ",
+          title: "Модели",
+          subtitle: nil,
+          closeAccessibilityLabel: "Закрыть настройку модели",
+          close: { dismiss() }
+        )
+        .focused($closeButtonFocused)
 
         ScrollView {
-          StableAudioSetupGate(model: model)
-            .padding(28)
+          StableAudioSetupGate(
+            model: model,
+            requestRemoval: { modelID in
+              pendingRemoval = modelID
+              confirmsRemoval = true
+            }
+          )
+          .padding(28)
         }
-        .accessibilityLabel("Настройка Stable Audio 3 Small")
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .defaultScrollAnchor(.top)
+        .onAppear { closeButtonFocused = true }
+        .accessibilityLabel("Управление локальными моделями")
       }
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    .flowtoneSheetSurface(availableSize: availableWindowSize)
+    .alert(
+      "Удалить модель с устройства?",
+      isPresented: $confirmsRemoval,
+      presenting: pendingRemoval
+    ) { modelID in
+      Button("Удалить", role: .destructive) {
+        model.removeModel(modelID)
+        pendingRemoval = nil
+      }
+      Button("Отмена", role: .cancel) { pendingRemoval = nil }
+    } message: { modelID in
+      Text(
+        "\(model.modelName(for: modelID)) и её веса будут удалены. Локальные треки останутся. Flowtone автоматически подключит другую установленную модель."
+      )
     }
   }
 }
 
 private struct StableAudioSetupGate: View {
   @ObservedObject var model: FlowtoneAppModel
+  let requestRemoval: (MusicModelID) -> Void
+  @State private var showsTermsReminder = false
 
   private static let repositoryURL = URL(string: "https://github.com/Stability-AI/stable-audio-3")!
   private static let modelCardURL = URL(
@@ -894,33 +933,20 @@ private struct StableAudioSetupGate: View {
     string: "https://huggingface.co/stabilityai/stable-audio-3-optimized")!
   private static let licenseURL = URL(string: "https://stability.ai/license")!
   private static let gemmaTermsURL = URL(string: "https://ai.google.dev/gemma/terms")!
+  private static let aceStepURL = URL(string: "https://github.com/ace-step/ACE-Step-1.5")!
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 14) {
-      Text("ЛОКАЛЬНАЯ МУЗЫКАЛЬНАЯ МОДЕЛЬ")
-        .font(.system(size: 8, weight: .semibold, design: .monospaced))
-        .tracking(0.8)
-        .foregroundStyle(FlowtonePalette.muted)
-
-      Text("Flowtone сам скачает лёгкий MLX-набор, подготовит его и сразу подключит генерацию.")
-        .font(.system(size: 12, weight: .semibold, design: .rounded))
-        .foregroundStyle(FlowtonePalette.ink)
-        .fixedSize(horizontal: false, vertical: true)
-
-      HStack(alignment: .top, spacing: 12) {
-        setupFact(icon: "internaldrive", title: "Около 2 ГБ", detail: "только Small-Music")
-        setupFact(icon: "lock.shield", title: "Проверка файлов", detail: "до запуска")
-        setupFact(icon: "wifi.slash", title: "Офлайн после установки", detail: "без облака")
-      }
+    VStack(alignment: .leading, spacing: 16) {
+      selectionSection
 
       VStack(alignment: .leading, spacing: 9) {
-        Text("1. ПРОЧИТАЙТЕ УСЛОВИЯ")
+        Text("ОФИЦИАЛЬНЫЕ УСЛОВИЯ")
           .font(.system(size: 9, weight: .semibold, design: .monospaced))
           .tracking(0.8)
           .foregroundStyle(FlowtonePalette.signal)
 
         Text(
-          "Код Flowtone распространяется отдельно от весов Stable Audio. Откройте официальные страницы и лично примите применимые условия."
+          "Код Flowtone распространяется отдельно от весов Stable Audio и ACE-Step. Откройте официальные страницы и лично примите применимые условия."
         )
         .font(.system(size: 10, design: .rounded))
         .foregroundStyle(FlowtonePalette.muted)
@@ -934,6 +960,7 @@ private struct StableAudioSetupGate: View {
         HStack(spacing: 7) {
           officialPageButton("Условия Gemma", url: Self.gemmaTermsURL)
           officialPageButton("Исходный код", url: Self.repositoryURL)
+          officialPageButton("ACE-Step", url: Self.aceStepURL)
         }
 
         if model.hasAcknowledgedStableAudioTerms {
@@ -942,86 +969,69 @@ private struct StableAudioSetupGate: View {
             .foregroundStyle(FlowtonePalette.muted)
         } else {
           Button(action: model.acknowledgeStableAudioTermsRead) {
-            Text("Я лично открыл(а) и прочитал(а) официальные условия")
-              .font(.system(size: 10, weight: .semibold, design: .rounded))
-              .multilineTextAlignment(.leading)
-              .frame(maxWidth: .infinity, alignment: .leading)
+            Label(
+              "Подтвердить: я лично открыл(а) и прочитал(а) официальные условия",
+              systemImage: "checkmark.shield"
+            )
+            .font(.system(size: 10, weight: .semibold, design: .rounded))
+            .multilineTextAlignment(.leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
           }
-          .buttonStyle(.bordered)
+          .buttonStyle(.borderedProminent)
+          .buttonBorderShape(.roundedRectangle(radius: 10))
+          .controlSize(.large)
           .tint(FlowtonePalette.signal)
           .accessibilityHint(model.stableAudioTermsAcknowledgementText)
         }
       }
       .padding(14)
+      .frame(maxWidth: .infinity, alignment: .leading)
       .background(FlowtonePalette.panel.opacity(0.68), in: RoundedRectangle(cornerRadius: 12))
       .overlay { RoundedRectangle(cornerRadius: 12).stroke(FlowtonePalette.line) }
 
-      VStack(alignment: .leading, spacing: 9) {
-        Text("2. СКАЧАЙТЕ И ПОДКЛЮЧИТЕ")
-          .font(.system(size: 9, weight: .semibold, design: .monospaced))
-          .tracking(0.8)
-          .foregroundStyle(FlowtonePalette.signal)
+      Text("ВЕРСИИ ПО МОЩНОСТИ")
+        .font(.system(size: 9, weight: .semibold, design: .monospaced))
+        .tracking(0.8)
+        .foregroundStyle(FlowtonePalette.signal)
 
-        if model.stableAudioInstallationIsComplete && !model.isInstallingStableAudio {
-          Label("Stable Audio 3 Small подключена", systemImage: "checkmark.seal.fill")
-            .font(.system(size: 12, weight: .semibold, design: .rounded))
-            .foregroundStyle(FlowtonePalette.ink)
-          Text("Новые треки генерируются локально. Интернет модели больше не нужен.")
-            .font(.system(size: 10, design: .rounded))
-            .foregroundStyle(FlowtonePalette.muted)
-          Button("Проверить подключение", action: model.refreshGenerationRuntime)
-            .buttonStyle(.bordered)
-            .tint(FlowtonePalette.signal)
-        } else if model.isInstallingStableAudio {
-          HStack(spacing: 10) {
-            ProgressView()
-              .controlSize(.small)
-              .tint(FlowtonePalette.signal)
+      ForEach(HardwareModelGroup.allCases) { group in
+        VStack(alignment: .leading, spacing: 10) {
+          HStack(alignment: .firstTextBaseline) {
             VStack(alignment: .leading, spacing: 3) {
-              Text(model.stableAudioInstallationTitle)
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
+              Text(group.title)
+                .font(.system(size: 10, weight: .bold, design: .monospaced))
+                .tracking(0.8)
                 .foregroundStyle(FlowtonePalette.ink)
-              Text(model.stableAudioInstallationDetail)
+              Text(group.requirement)
                 .font(.system(size: 9, design: .rounded))
                 .foregroundStyle(FlowtonePalette.muted)
-                .fixedSize(horizontal: false, vertical: true)
             }
-          }
-          ProgressView(value: model.stableAudioInstallationFraction)
-            .tint(FlowtonePalette.signal)
-          Button("Отменить установку", action: model.cancelStableAudioInstallation)
-            .buttonStyle(.bordered)
-            .tint(FlowtonePalette.signal)
-        } else {
-          Text(model.stableAudioInstallationDetail)
-            .font(.system(size: 10, design: .rounded))
-            .foregroundStyle(FlowtonePalette.muted)
-            .fixedSize(horizontal: false, vertical: true)
-
-          if let error = model.stableAudioInstallationErrorText {
-            Label(error, systemImage: "exclamationmark.triangle.fill")
-              .font(.system(size: 9, design: .rounded))
-              .foregroundStyle(FlowtonePalette.signal)
-              .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+            if model.hardware.modelGroup == group { statusPill("ЭТОТ MAC") }
           }
 
-          Button(action: model.installStableAudioModel) {
-            Label("Скачать и подключить · около 2 ГБ", systemImage: "arrow.down.circle.fill")
-              .font(.system(size: 11, weight: .semibold, design: .rounded))
-              .frame(maxWidth: .infinity)
+          ForEach(group.modelIDs, id: \.self) { modelID in
+            modelCard(
+              MusicModelProfile.profile(for: modelID),
+              baselineID: group.baselineID
+            )
           }
-          .buttonStyle(.borderedProminent)
-          .tint(FlowtonePalette.signal)
-          .disabled(!model.hasAcknowledgedStableAudioTerms)
-          .accessibilityHint("Скачает официальный MLX runtime и музыкальные веса на этот Mac")
         }
+        .padding(.top, 4)
       }
-      .padding(14)
-      .background(FlowtonePalette.panel.opacity(0.68), in: RoundedRectangle(cornerRadius: 12))
-      .overlay { RoundedRectangle(cornerRadius: 12).stroke(FlowtonePalette.line) }
 
-      DisclosureGroup("Где хранится модель") {
-        Text(model.stableAudioRuntimePath)
+      if let error = model.stableAudioInstallationErrorText {
+        Label(error, systemImage: "exclamationmark.triangle.fill")
+          .font(.system(size: 10, design: .rounded))
+          .foregroundStyle(FlowtonePalette.signal)
+          .fixedSize(horizontal: false, vertical: true)
+          .padding(12)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .background(FlowtonePalette.signal.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+      }
+
+      DisclosureGroup("Где хранятся модели") {
+        Text(model.modelRuntimePaths)
           .font(.system(size: 8, design: .monospaced))
           .textSelection(.enabled)
           .foregroundStyle(FlowtonePalette.muted)
@@ -1032,6 +1042,182 @@ private struct StableAudioSetupGate: View {
       .tint(FlowtonePalette.signal)
     }
     .padding(.top, 2)
+    .alert("Сначала подтвердите чтение условий", isPresented: $showsTermsReminder) {
+      Button("Понятно", role: .cancel) {}
+    } message: {
+      Text(
+        "Откройте официальные страницы выше и нажмите оранжевую кнопку подтверждения. После этого выбранная модель сразу начнёт скачиваться."
+      )
+    }
+  }
+
+  private var selectionSection: some View {
+    VStack(alignment: .leading, spacing: 10) {
+      HStack {
+        VStack(alignment: .leading, spacing: 3) {
+          Text("ВЫБОР МОДЕЛИ")
+            .font(.system(size: 9, weight: .semibold, design: .monospaced))
+            .tracking(0.8)
+            .foregroundStyle(FlowtonePalette.signal)
+          Text("Этот Mac: Apple Silicon · \(model.hardware.memoryGiB) ГБ памяти")
+            .font(.system(size: 10, design: .rounded))
+            .foregroundStyle(FlowtonePalette.muted)
+        }
+        Spacer()
+        Label("Офлайн", systemImage: "wifi.slash")
+          .font(.system(size: 9, weight: .semibold, design: .rounded))
+          .foregroundStyle(FlowtonePalette.muted)
+      }
+
+      Picker("Выбор модели", selection: $model.modelPreference) {
+        Text("Автоматически · \(model.modelName(for: model.recommendedModelID))")
+          .tag(ModelPreference.automatic)
+        ForEach(MusicModelProfile.all) { profile in
+          Text(profile.title).tag(ModelPreference(modelID: profile.id))
+        }
+      }
+      .pickerStyle(.menu)
+      .labelsHidden()
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      Text(
+        "Автоподбор рекомендует \(model.modelName(for: model.recommendedModelID)). Если она не установлена, Flowtone подключит другую доступную модель."
+      )
+      .font(.system(size: 10, design: .rounded))
+      .foregroundStyle(FlowtonePalette.muted)
+      .fixedSize(horizontal: false, vertical: true)
+    }
+    .padding(14)
+    .background(FlowtonePalette.panel.opacity(0.68), in: RoundedRectangle(cornerRadius: 12))
+    .overlay { RoundedRectangle(cornerRadius: 12).stroke(FlowtonePalette.line) }
+  }
+
+  private func modelCard(_ profile: MusicModelProfile, baselineID: MusicModelID) -> some View {
+    let installed = model.isModelInstalled(profile.id)
+    let connected = model.activeModelID == profile.id
+    let installing = model.isInstallingStableAudio && model.installingModelID == profile.id
+
+    return VStack(alignment: .leading, spacing: 11) {
+      HStack(alignment: .top, spacing: 12) {
+        ZStack {
+          Circle().stroke(FlowtonePalette.signal.opacity(0.35), lineWidth: 1)
+          Circle().stroke(FlowtonePalette.signal.opacity(0.22), lineWidth: 1).padding(5)
+          Circle().fill(FlowtonePalette.signal).frame(width: 5, height: 5)
+        }
+        .frame(width: 34, height: 34)
+
+        VStack(alignment: .leading, spacing: 4) {
+          Text(profile.title)
+            .font(.system(size: 14, weight: .semibold, design: .serif))
+            .foregroundStyle(FlowtonePalette.ink)
+          Text(profile.summary)
+            .font(.system(size: 10, design: .rounded))
+            .foregroundStyle(FlowtonePalette.muted)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+
+        Spacer(minLength: 8)
+        VStack(alignment: .trailing, spacing: 5) {
+          if baselineID == profile.id { statusPill("БАЗОВАЯ") }
+          if model.isModelRecommended(profile.id) { statusPill("АВТОВЫБОР") }
+          if profile.isAmbitious { statusPill("АМБИЦИОЗНАЯ") }
+          if connected { statusPill("ПОДКЛЮЧЕНА") } else if installed { statusPill("УСТАНОВЛЕНА") }
+        }
+      }
+
+      VStack(alignment: .leading, spacing: 5) {
+        Label(profile.betterThanBaseline, systemImage: "plus.circle.fill")
+          .foregroundStyle(FlowtonePalette.ink)
+        Label(profile.worseThanBaseline, systemImage: "minus.circle.fill")
+          .foregroundStyle(FlowtonePalette.muted)
+      }
+      .font(.system(size: 9, design: .rounded))
+      .fixedSize(horizontal: false, vertical: true)
+
+      HStack(spacing: 8) {
+        setupFact(
+          icon: "arrow.down.circle",
+          title: "≈ \(String(format: "%.1f", profile.estimatedDownloadGiB)) ГБ",
+          detail: "загрузка"
+        )
+        setupFact(
+          icon: "memorychip",
+          title: "от \(profile.minimumMemoryGiB) ГБ",
+          detail: "память"
+        )
+        setupFact(icon: "lock.shield", title: profile.backend, detail: "локально")
+      }
+
+      if installing {
+        HStack(spacing: 9) {
+          ProgressView().controlSize(.small).tint(FlowtonePalette.signal)
+          VStack(alignment: .leading, spacing: 2) {
+            Text(model.stableAudioInstallationTitle)
+              .font(.system(size: 10, weight: .semibold, design: .rounded))
+              .foregroundStyle(FlowtonePalette.ink)
+            Text(model.stableAudioInstallationDetail)
+              .font(.system(size: 9, design: .rounded))
+              .foregroundStyle(FlowtonePalette.muted)
+          }
+        }
+        ProgressView(value: model.stableAudioInstallationFraction)
+          .tint(FlowtonePalette.signal)
+        Button("Отменить установку", action: model.cancelStableAudioInstallation)
+          .buttonStyle(.bordered)
+          .tint(FlowtonePalette.signal)
+      } else if installed {
+        HStack(spacing: 8) {
+          if !connected {
+            Button("Подключить") { model.selectModel(profile.id) }
+              .buttonStyle(.borderedProminent)
+              .tint(FlowtonePalette.signal)
+          }
+          Button("Удалить с устройства", role: .destructive) {
+            requestRemoval(profile.id)
+          }
+          .buttonStyle(.bordered)
+          .disabled(model.isInstallingStableAudio || model.isRemovingStableAudio)
+        }
+      } else {
+        Button {
+          if model.hasAcknowledgedStableAudioTerms {
+            model.installModel(profile.id)
+          } else {
+            showsTermsReminder = true
+          }
+        } label: {
+          Label(
+            "Установить и подключить · ≈ \(String(format: "%.1f", profile.estimatedDownloadGiB)) ГБ",
+            systemImage: "arrow.down.circle.fill"
+          )
+          .font(.system(size: 10, weight: .semibold, design: .rounded))
+          .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(FlowtonePalette.signal)
+        .disabled(model.isInstallingStableAudio || model.isRemovingStableAudio)
+        .accessibilityHint("Скачает официальную модель на этот Mac и подключит её")
+      }
+    }
+    .padding(14)
+    .background(
+      connected ? FlowtonePalette.signal.opacity(0.075) : FlowtonePalette.panel.opacity(0.68),
+      in: RoundedRectangle(cornerRadius: 12)
+    )
+    .overlay {
+      RoundedRectangle(cornerRadius: 12)
+        .stroke(connected ? FlowtonePalette.signal.opacity(0.6) : FlowtonePalette.line)
+    }
+  }
+
+  private func statusPill(_ title: String) -> some View {
+    Text(title)
+      .font(.system(size: 7, weight: .bold, design: .monospaced))
+      .tracking(0.6)
+      .foregroundStyle(FlowtonePalette.signal)
+      .padding(.horizontal, 7)
+      .padding(.vertical, 4)
+      .background(FlowtonePalette.signal.opacity(0.09), in: Capsule())
   }
 
   private func setupFact(icon: String, title: String, detail: String) -> some View {
@@ -1078,43 +1264,34 @@ private enum TrackLibrarySection: String, CaseIterable, Identifiable {
 
 private struct TrackLibraryView: View {
   @ObservedObject var model: FlowtoneAppModel
+  let availableWindowSize: CGSize
   @Environment(\.dismiss) private var dismiss
   @State private var confirmsCleanup = false
   @State private var section: TrackLibrarySection = .tracks
+  @State private var selectedGenre: String?
 
   private let columns = [GridItem(.flexible()), GridItem(.flexible())]
 
   private var visibleTracks: [TrackRecord] {
+    let tracks: [TrackRecord]
     switch model.libraryFilter {
-    case .all: model.tracks
-    case .liked: model.tracks.filter(\.isLiked)
+    case .all: tracks = model.tracks
+    case .liked: tracks = model.tracks.filter(\.isLiked)
     }
+
+    guard let selectedGenre else { return tracks }
+    return tracks.filter { $0.genres.contains(selectedGenre) }
   }
 
   var body: some View {
     VStack(spacing: 0) {
-      HStack(alignment: .top) {
-        VStack(alignment: .leading, spacing: 5) {
-          Text("ЛОКАЛЬНАЯ КОЛЛЕКЦИЯ")
-            .font(.system(size: 10, weight: .semibold, design: .monospaced))
-            .tracking(1.5)
-            .foregroundStyle(FlowtonePalette.signal)
-          Text("Архив эфира")
-            .font(.system(size: 28, weight: .medium, design: .serif))
-            .foregroundStyle(FlowtonePalette.ink)
-          Text("Записи остаются на этом Mac")
-            .font(.system(size: 12, design: .rounded))
-            .foregroundStyle(FlowtonePalette.muted)
-        }
-
-        Spacer()
-
-        Button("Готово") { dismiss() }
-          .buttonStyle(.plain)
-          .font(.system(size: 13, weight: .semibold, design: .rounded))
-          .foregroundStyle(FlowtonePalette.signal)
-      }
-      .padding(28)
+      FlowtoneSheetHeader(
+        eyebrow: "ЛОКАЛЬНАЯ КОЛЛЕКЦИЯ",
+        title: "Архив эфира",
+        subtitle: "Записи остаются на этом Mac",
+        closeAccessibilityLabel: "Закрыть коллекцию",
+        close: { dismiss() }
+      )
 
       Picker("Раздел архива", selection: $section) {
         ForEach(TrackLibrarySection.allCases) { item in
@@ -1138,9 +1315,11 @@ private struct TrackLibraryView: View {
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-    .frame(minWidth: 700, minHeight: 650)
-    .background(FlowtonePalette.canvas)
-    .preferredColorScheme(.dark)
+    .flowtoneSheetSurface(availableSize: availableWindowSize)
+    .onAppear {
+      section = .tracks
+      selectedGenre = nil
+    }
     .confirmationDialog(
       "Удалить все записи без лайка?",
       isPresented: $confirmsCleanup,
@@ -1167,10 +1346,24 @@ private struct TrackLibraryView: View {
         .tint(FlowtonePalette.signal)
         .frame(width: 260)
 
+        if let selectedGenre {
+          Button {
+            self.selectedGenre = nil
+          } label: {
+            Label(model.genreDisplayName(selectedGenre), systemImage: "xmark")
+          }
+          .buttonStyle(.bordered)
+          .controlSize(.small)
+          .tint(FlowtonePalette.signal)
+          .accessibilityLabel("Сбросить фильтр жанра \(model.genreDisplayName(selectedGenre))")
+        }
+
         Text(
-          model.libraryFilter == .liked
-            ? "\(visibleTracks.count) любимых"
-            : model.librarySummaryText
+          selectedGenre != nil
+            ? "\(visibleTracks.count) треков"
+            : model.libraryFilter == .liked
+              ? "\(visibleTracks.count) любимых"
+              : model.librarySummaryText
         )
         .font(.system(size: 11, weight: .medium, design: .rounded))
         .foregroundStyle(FlowtonePalette.muted)
@@ -1218,15 +1411,19 @@ private struct TrackLibraryView: View {
         .font(.system(size: 24))
         .foregroundStyle(FlowtonePalette.signal)
       Text(
-        model.libraryFilter == .liked
-          ? "Пока нет любимых записей" : "Здесь появятся записи станции"
+        selectedGenre != nil
+          ? "Нет треков этого жанра"
+          : model.libraryFilter == .liked
+            ? "Пока нет любимых записей" : "Здесь появятся записи станции"
       )
       .font(.system(size: 15, weight: .medium, design: .serif))
       .foregroundStyle(FlowtonePalette.ink)
       Text(
-        model.libraryFilter == .liked
-          ? "Нажмите сердце у трека, который хотите сохранить"
-          : "Создайте первую запись на главном экране"
+        selectedGenre != nil
+          ? "Сбросьте фильтр жанра над списком"
+          : model.libraryFilter == .liked
+            ? "Нажмите сердце у трека, который хотите сохранить"
+            : "Создайте первую запись на главном экране"
       )
       .font(.system(size: 11, design: .rounded))
       .foregroundStyle(FlowtonePalette.muted)
@@ -1260,18 +1457,33 @@ private struct TrackLibraryView: View {
 
             LazyVGrid(columns: columns, spacing: 8) {
               ForEach(model.libraryStatistics.genres, id: \.genre) { item in
-                HStack {
-                  Text(model.genreDisplayName(item.genre))
-                  Spacer()
-                  Text("\(item.trackCount) · \(model.formatBytes(item.byteSize))")
-                    .foregroundStyle(FlowtonePalette.muted)
+                Button {
+                  selectedGenre = item.genre
+                  model.libraryFilter = .all
+                  section = .tracks
+                } label: {
+                  HStack {
+                    Text(model.genreDisplayName(item.genre))
+                    Spacer()
+                    Text("\(item.trackCount) · \(model.formatBytes(item.byteSize))")
+                      .foregroundStyle(FlowtonePalette.muted)
+                    Image(systemName: "chevron.right")
+                      .font(.system(size: 8, weight: .bold))
+                      .foregroundStyle(FlowtonePalette.signal)
+                  }
+                  .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
                 .font(.system(size: 11, design: .rounded))
                 .foregroundStyle(FlowtonePalette.ink)
                 .padding(.horizontal, 12)
                 .frame(height: 38)
                 .background(
-                  FlowtonePalette.panel.opacity(0.72), in: RoundedRectangle(cornerRadius: 9))
+                  FlowtonePalette.panel.opacity(0.72), in: RoundedRectangle(cornerRadius: 9)
+                )
+                .accessibilityLabel(
+                  "Показать \(item.trackCount) треков жанра \(model.genreDisplayName(item.genre))"
+                )
               }
             }
           }
@@ -1394,6 +1606,76 @@ private struct TrackLibraryView: View {
     .padding(.horizontal, 28)
     .frame(minHeight: 58)
     .background(track.id == model.currentTrackID ? FlowtonePalette.panel.opacity(0.72) : .clear)
+  }
+}
+
+private struct SheetCloseButton: View {
+  let action: () -> Void
+
+  var body: some View {
+    Button(action: action) {
+      Label("Закрыть", systemImage: "xmark")
+        .labelStyle(.iconOnly)
+        .frame(width: 32, height: 32)
+    }
+    .buttonStyle(.bordered)
+    .tint(FlowtonePalette.signal)
+    .focusEffectDisabled()
+  }
+}
+
+private struct FlowtoneSheetHeader: View {
+  let eyebrow: String
+  let title: String
+  let subtitle: String?
+  let closeAccessibilityLabel: String
+  let close: () -> Void
+
+  var body: some View {
+    VStack(spacing: 0) {
+      HStack(alignment: .top, spacing: 16) {
+        VStack(alignment: .leading, spacing: 5) {
+          Text(eyebrow)
+            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+            .tracking(1.5)
+            .foregroundStyle(FlowtonePalette.signal)
+          Text(title)
+            .font(.system(size: 28, weight: .medium, design: .serif))
+            .foregroundStyle(FlowtonePalette.ink)
+          if let subtitle {
+            Text(subtitle)
+              .font(.system(size: 12, design: .rounded))
+              .foregroundStyle(FlowtonePalette.muted)
+          } else {
+            Color.clear
+              .frame(height: 14)
+              .accessibilityHidden(true)
+          }
+        }
+
+        Spacer()
+
+        SheetCloseButton(action: close)
+          .accessibilityLabel(closeAccessibilityLabel)
+          .accessibilityHint("Также можно нажать Escape")
+      }
+      .padding(28)
+
+      Rectangle()
+        .fill(FlowtonePalette.line)
+        .frame(height: 1)
+    }
+  }
+}
+
+extension View {
+  func flowtoneSheetSurface(availableSize: CGSize) -> some View {
+    let width = min(max((availableSize.width - 300) * 0.75, 700), 780)
+    let height = min(max(availableSize.height - 40, 650), 860)
+
+    return frame(width: width, height: height)
+      .background(FlowtonePalette.canvas)
+      .preferredColorScheme(.dark)
   }
 }
 

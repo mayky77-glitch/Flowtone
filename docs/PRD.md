@@ -115,7 +115,7 @@ Flowtone — бесплатное open-source приложение для вла
 
 - Бесплатное open-source приложение.
 - Исходный код Flowtone распространяется под MIT License.
-- Первая публичная сборка: unsigned `Flowtone.app.zip` как GitHub Actions artifact при push/tag, срок хранения 14 дней; GitHub Release не создаётся.
+- Первая публичная сборка: unsigned arm64 ZIP с `Flowtone.app`, русской инструкцией, MIT license и SHA-256 как GitHub Actions artifact при push/tag, срок хранения 14 дней; GitHub Release не создаётся.
 - Веса моделей не входят автоматически в MIT-лицензию Flowtone и регулируются отдельными upstream terms.
 - Unsigned-приложение может показать предупреждение Gatekeeper; пользователь должен самостоятельно разрешить запуск.
 
@@ -129,10 +129,10 @@ TAM/SAM/SOM не рассчитывались. Для текущего open-sour
 
 ### 5.1 Пользовательский сценарий
 
-1. Пользователь скачивает unsigned `Flowtone.app.zip` из GitHub Actions artifacts и распаковывает приложение.
+1. Пользователь скачивает unsigned `Flowtone-1.0.1-macos-arm64-unsigned.zip` из GitHub Actions artifacts и распаковывает приложение.
 2. Приложение определяет chip и объём unified memory.
 3. Flowtone рекомендует лёгкую или тяжёлую модель; пользователь может изменить выбор.
-4. Flowtone показывает ссылки на официальные страницы условий модели и просит пользователя подтвердить, что он их прочитал; эта отметка не принимает terms за пользователя. Автоматического downloader, checksum или provisioning нет.
+4. Flowtone показывает официальные страницы условий модели и просит пользователя подтвердить, что он лично их прочитал; эта отметка не принимает terms за пользователя. После подтверждения приложение само скачивает проверенный MLX runtime и публичный optimized Small-Music bundle, устанавливает их в Application Support и подключает генерацию.
 5. Пользователь выбирает жанровые фильтры, темп эфира и настроение; все жанры можно выбрать или снять одной командой. Звуковой профиль выбирается автоматически. Можно включить случайный жанровый микс; точный BPM подбирается автоматически.
 6. При желании добавляет свободное текстовое описание вайба.
 7. Flowtone запускает станцию и поддерживает очередь готовых треков.
@@ -149,6 +149,7 @@ TAM/SAM/SOM не рассчитывались. Для текущего open-sour
 - Автоматическая пауза генерации при высокой температуре или memory pressure.
 - Повтор существующих треков как штатный fallback.
 - Выбор local engine с автоматической рекомендацией.
+- Автоматическая установка лёгкой модели без Terminal: зафиксированные official source/uv archives, SHA-256 verification, progress/cancel и offline-режим после загрузки.
 - Session history, перемешивание без близких повторов, лайк, раздел «Любимые», запуск любого трека из коллекции и локальная коллекция.
 - «Полное радио» с временным окном current/previous/queue и «Радио с записью» с постоянной коллекцией.
 - Статистика: число и размер всех треков, число и размер по жанрам.
@@ -229,8 +230,9 @@ Metadata contract реализован как `library-v1.json`; переход 
 
 - Определяет hardware class и рекомендует engine.
 - Показывает размер, требования, лицензию и ожидаемую нагрузку.
-- Не автоматизирует downloader, checksum или provisioning; показывает официальные model terms и локальную отметку чтения.
-- Проверяет наличие исполняемого light runtime по фиксированному локальному пути.
+- После личного подтверждения чтения official terms автоматически скачивает только зафиксированный Stable Audio 3 Small MLX stack, проверяет source/uv archives по SHA-256 и устанавливает его в Application Support.
+- Не хранит пользовательский токен и не выполняет `curl | bash`; optimized weights скачиваются официальным runtime из публичного Stability AI repository.
+- Проверяет наличие Python/MLX environment, четырёх Small-Music weight files и исполняемого light runtime по фиксированному локальному пути; затем generation запускается строго offline.
 - Quality tier честно показывает отсутствие ACE-Step adapter и не запускает скрытую установку.
 
 #### Track Library
@@ -314,14 +316,16 @@ Stable Audio code и model weights имеют разные условия. Дл�
 
 ### Story 1 — Первый запуск и настройка модели
 
-Как новый пользователь, я хочу понять, какая модель подходит моему Mac и как вручную подключить официальный runtime.
+Как новый пользователь, я хочу понять, какая модель подходит моему Mac, и подключить её без Terminal.
 
 **Acceptance Criteria:**
 
 - [ ] Flowtone определяет Apple Silicon chip и объём unified memory.
 - [ ] Показывает рекомендуемую модель и требования.
 - [ ] Показывает официальные условия модели и даёт локально отметить их прочтение; отметка не принимает terms за пользователя.
-- [ ] Не заявляет автоматический downloader, checksum или provisioning; модель настраивается вручную по официальной инструкции.
+- [ ] После подтверждения скачивает только Stable Audio 3 Small MLX, показывает этапы и позволяет отменить установку.
+- [ ] Проверяет зафиксированные runtime archives по SHA-256, не сохраняет token/credentials и автоматически подключает offline generation.
+- [ ] Незавершённая установка не выдаётся за готовую; повторная попытка использует уже загруженный model cache.
 
 ### Story 2 — Настройка станции
 
@@ -486,7 +490,8 @@ Future candidates: влияние лайков на генерацию, поль
 | Музыка быстро кажется однообразной или отвлекающей | Value/Usability | Набор benchmark prompts, слепое прослушивание, genre diversity rules, быстрый skip и fallback |
 | 8 ГБ недостаточно даже для light tier рядом с рабочими приложениями | Feasibility | Отдельный M1/8 ГБ benchmark; conservative scheduler; выгрузка модели при memory pressure; честное изменение minimum requirements |
 | ACE-Step нестабилен или слишком тяжёл на macOS | Feasibility | Оставить experimental tier; Stable Audio 3 Small — независимый baseline; изолировать heavy engine в helper process |
-| Gated model download нельзя прозрачно автоматизировать | Viability/Legal | Проверить redistribution и auth flow до UI реализации; не встраивать чужой токен; показать terms пользователю |
+| Условия весов нельзя принять за пользователя | Viability/Legal | Перед загрузкой показать official pages и потребовать личное подтверждение; скачивать публичный optimized bundle без встроенного токена; хранить только локальную отметку |
+| Загрузка исполняемого runtime создаёт supply-chain риск | Security | Pin source revision и uv version, проверять archives по SHA-256 до распаковки, не выполнять `curl | bash`, запускать generation offline |
 | Лицензии кода, весов и outputs несовместимы с релизом | Legal | Отдельный license review и файл third-party notices; не путать open-source app с лицензией weights |
 | WAV быстро заполняет диск | Usability | Storage dashboard, user limit, cleanup unliked, benchmark M4A archive format |
 | Bulk cleanup удаляет нужную музыку | Usability | Лайк-защита, preview count/size, подтверждение, запрет удаления current/ready; решить undo/recovery до релиза |
@@ -504,7 +509,7 @@ Future candidates: влияние лайков на генерацию, поль
 | Какая open-source лицензия используется? | Владелец продукта | До public release | Решено: MIT |
 | Какова минимальная версия macOS? | Engineering | После engine spike | Open |
 | Реально ли поддержать Stable Audio 3 Small на M1/8 ГБ рядом с рабочей нагрузкой? | Engineering | До MVP implementation | Open |
-| Как вручную настроить gated model weights по официальным terms? | Engineering/Legal | До Model Manager | Open |
+| Как подключать модель без Terminal, не принимая terms за пользователя? | Engineering/Legal | До Model Manager | Решено: official links + local acknowledgement + verified automatic installer |
 | Какой внутренний формат: WAV или M4A, и какой default storage limit? | Product/Engineering | После storage benchmark | Open |
 | Нужны ли Trash/Undo/Recently Deleted для массовой очистки? | Product | До Library implementation | Open |
 | Какая доля внешних 60-минутных сессий считается product success? | Product | После первых 5–8 интервью | Open |
@@ -537,8 +542,8 @@ Future candidates: влияние лайков на генерацию, поль
 
 ### Slice 3 — Repository beta — реализовано
 
-- Manual model setup с официальными terms и локальной отметкой чтения; без автоматического downloader/checksum/provisioning.
-- Unsigned `Flowtone.app.zip` как GitHub Actions artifact при push/tag (retention 14 days); предупредить о Gatekeeper.
+- Автоматический installer Stable Audio 3 Small MLX после личного подтверждения чтения official terms; pinned archives, SHA-256, progress/cancel и offline generation.
+- Unsigned arm64 ZIP с приложением, русской инструкцией, MIT license и SHA-256 как GitHub Actions artifact при push/tag (retention 14 days); предупредить о Gatekeeper.
 
 ### Следующий этап — hardware beta
 

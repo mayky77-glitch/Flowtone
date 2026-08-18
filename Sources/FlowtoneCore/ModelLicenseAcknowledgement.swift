@@ -2,12 +2,13 @@ import Foundation
 
 /// Stores a user's confirmation that they personally opened and read the official model terms.
 ///
-/// This is deliberately not a record of accepting any third-party terms. Gated model access and
-/// acceptance on Hugging Face remain actions the user must complete directly with those services.
+/// This is deliberately not a record of accepting any third-party terms. Acceptance remains an
+/// action the user must complete personally before Flowtone downloads the public MLX bundle.
 public final class ModelLicenseAcknowledgement {
   public static let stableAudioTermsAcknowledgementText =
     "Я сам(а) открыл(а) и прочитал(а) официальные условия Stable Audio и страницу модели. "
-    + "Это не означает, что Flowtone принимает условия или получает доступ к весам от моего имени."
+    + "Flowtone не принимает эти условия от моего имени; после подтверждения он может скачать "
+    + "официальный MLX-набор на этот Mac."
 
   private static let stableAudioTermsAcknowledgementKey =
     "Flowtone.stableAudioTermsAcknowledgement"

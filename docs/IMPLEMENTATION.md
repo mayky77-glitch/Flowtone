@@ -86,21 +86,36 @@ Player поддерживает seek, начало/конец, ±15 секунд
 
 Flowtone следует официальному [`optimized/mlx`](https://github.com/Stability-AI/stable-audio-3/tree/main/optimized/mlx) runtime. Adapter запускает executable напрямую через `Process`; prompt не передаётся shell и не интерполируется.
 
-Перед ручной установкой:
+Установка выполняется из окна «Настроить модель»:
 
-1. Откройте [Stable Audio 3 Small-Music на Hugging Face](https://huggingface.co/stabilityai/stable-audio-3-small-music), войдите в свой аккаунт и сами примите gated model/Gemma terms.
-2. Прочитайте [Stable Audio Community License](https://stability.ai/license) и убедитесь, что условия подходят вашему использованию.
-3. Откройте официальный [Stable Audio 3 repository](https://github.com/Stability-AI/stable-audio-3) и его [MLX instructions](https://github.com/Stability-AI/stable-audio-3/tree/main/optimized/mlx). Следуйте им вручную в отдельной от Flowtone директории.
+1. Откройте [Stable Audio 3 Small-Music на Hugging Face](https://huggingface.co/stabilityai/stable-audio-3-small-music), [optimized MLX bundle](https://huggingface.co/stabilityai/stable-audio-3-optimized), [Stable Audio Community License](https://stability.ai/license) и [Gemma Terms](https://ai.google.dev/gemma/terms).
+2. Лично прочитайте и примите применимые условия. Локальная отметка Flowtone подтверждает только это действие и не принимает внешние terms от имени пользователя.
+3. Нажмите «Скачать и подключить». Flowtone скачает только Small-Music MLX stack (около 2 ГБ), проверит установочные archives и автоматически включит generation.
 
-В приложении есть локальная отметка о том, что пользователь лично открыл и прочитал официальные страницы. Она записывается только локально и не означает принятие Flowtone внешних Hugging Face, Stability или Gemma terms, не предоставляет доступ к gated model и не заменяет действия пользователя на соответствующих сервисах.
+Installer не просит и не хранит Hugging Face token: официальный `stabilityai/stable-audio-3-optimized` bundle доступен для anonymous download, но остаётся под Stability AI Community License и Gemma Terms. Ни токен, ни пользовательские prompts не записываются в installation log.
 
-Не запускайте автоматическую установку из Flowtone: приложение и этот repository не скачивают веса, не принимают внешние terms и не выполняют `curl | bash`. Нет automatic downloader, checksum/provisioning или bundled weights. После ручной установки скопируйте или создайте symlink официального `./sa3` wrapper в фиксированном пути Flowtone:
+Supply-chain contract:
 
-```bash
-mkdir -p "$HOME/Library/Application Support/Flowtone"
-ln -s "/absolute/path/to/stable-audio-3/optimized/mlx/sa3" \
-  "$HOME/Library/Application Support/Flowtone/stable-audio-mlx"
+- Stability AI source закреплён на revision `a0b57f5483c4588f827f3552b7d5c6ca2a9687be`; source ZIP проверяется по SHA-256 до распаковки.
+- `uv` закреплён на version `0.12.5`; официальный arm64 archive проверяется по опубликованному SHA-256.
+- Flowtone не выполняет `curl | bash`: проверенный `uv` напрямую создаёт Python environment, после чего official `scripts/install.py` скачивает только `sm-music`; upstream bootstrap не вызывается.
+- Прямые runtime dependencies закреплены на версиях, прошедших M4/16 GB smoke: MLX 0.32.0, NumPy 2.4.6, SentencePiece 0.2.2, huggingface_hub 1.27.0 и SoundFile 0.14.0.
+- Python, MLX runtime, HF cache и веса находятся только в `~/Library/Application Support/Flowtone/`; app bundle и Git их не содержат.
+- Ошибка или cancel удаляет incomplete runtime/launcher, но сохраняет уже скачанные weights в локальном cache для следующей попытки.
+- Готовность требует executable launcher, official MLX scripts, `.venv/bin/python` и все четыре Small-Music files. Launcher вызывает `scripts/sa3_mlx.py` напрямую и не зависит от установленного в системе `uv`. После этого adapter принудительно выставляет `HF_HUB_OFFLINE=1`, `TRANSFORMERS_OFFLINE=1` и `HF_DATASETS_OFFLINE=1`.
+
+Фиксированный launcher path:
+
+```text
+~/Library/Application Support/Flowtone/stable-audio-mlx
 ```
+
+Автоматическая установка поддерживает только Apple Silicon и требует не менее 4 ГБ свободного места на время setup. ACE-Step quality tier остаётся отдельной будущей реализацией и не скачивается скрыто.
+
+Для разработки с уже установленным runtime:
+
+1. Убедитесь, что условия Stable Audio и Gemma подходят вашему использованию.
+2. Откройте официальный [Stable Audio 3 repository](https://github.com/Stability-AI/stable-audio-3) и его [MLX instructions](https://github.com/Stability-AI/stable-audio-3/tree/main/optimized/mlx).
 
 После установки:
 
@@ -116,7 +131,7 @@ swift run flowtone-spike \
 
 ## Reproducible Stable Audio benchmark
 
-После ручной установки запустите harness. Он не скачивает weights и не меняет runtime. Runtime запускается с `HF_HUB_OFFLINE=1` и `TRANSFORMERS_OFFLINE=1`, поэтому missing cached weights должны завершить run ошибкой, а не вызвать network provisioning. По умолчанию harness использует `~/Library/Application Support/Flowtone/stable-audio-mlx`, фиксированные prompt, negative prompt, 30 seconds, seed `424242`, MLX model flags `--dit sm-music --decoder same-s` и `--steps 8`.
+После автоматической или ручной установки запустите harness. Он не скачивает weights и не меняет runtime. Runtime запускается с `HF_HUB_OFFLINE=1` и `TRANSFORMERS_OFFLINE=1`, поэтому missing cached weights должны завершить run ошибкой, а не вызвать network provisioning. По умолчанию harness использует `~/Library/Application Support/Flowtone/stable-audio-mlx`, фиксированные prompt, negative prompt, 30 seconds, seed `424242`, MLX model flags `--dit sm-music --decoder same-s` и `--steps 8`.
 
 ```bash
 scripts/benchmark-stable-audio.sh
@@ -148,7 +163,7 @@ sa3 --prompt <prompt> --negative-prompt <negative> \
 
 - Полный Xcode не установлен; SwiftPM build/test работает через Command Line Tools.
 - Веса не входят в Git/сборку. На тестовом M4/16 ГБ official Small-Music MLX runtime установлен вне репозитория; offline 30-second benchmark прошёл за 7.68 с process wall / 4.81 с model wall с stage peak 1.69 ГБ.
-- Есть локальная UI-отметка о личном прочтении официальных страниц; она не принимает external terms и не даёт доступ к gated weights. Нет automatic downloader, checksum/provisioning или bundled weights.
+- Есть automatic verified installer для public optimized Small-Music MLX bundle; локальная UI-отметка не принимает external terms. Model weights не bundled, token не требуется и не хранится.
 - ACE-Step quality adapter ещё не реализован.
 - Скрипт создаёт рабочий, но неподписанный `.app`. Signing/notarization намеренно вне scope repository Actions artifact и требуют отдельного решения владельца и credentials.
 - Системная memory-pressure защита подключена через `DispatchSource`; её пороги остаются системными.
@@ -170,4 +185,4 @@ open /tmp/flowtone-package/Flowtone.app
 
 Скрипт отказывается перезаписывать существующий bundle, включает `Assets/AppIcon.icns` и не выполняет signing или notarization.
 
-При `push` (включая tag) macOS CI упаковывает тот же bundle в `Flowtone-unsigned-macos.app.zip` c `ditto --keepParent` и сохраняет его как временный GitHub Actions artifact. Ни `.app`, ни ZIP в Git не коммитятся; GitHub Release не создаётся.
+При `push` (включая tag) macOS CI упаковывает тот же bundle, русскую инструкцию и MIT license в `Flowtone-1.0.1-macos-arm64-unsigned.zip`, добавляет SHA-256 и сохраняет оба файла как временный GitHub Actions artifact. Ни `.app`, ни ZIP в Git не коммитятся; GitHub Release не создаётся.

@@ -849,7 +849,7 @@ private struct StableAudioSetupSheet: View {
             Text("Stable Audio 3 Small")
               .font(.system(size: 25, weight: .medium, design: .serif))
               .foregroundStyle(FlowtonePalette.ink)
-            Text("Ручная установка и проверка доступа")
+            Text("Автоматическая установка и подключение")
               .font(.system(size: 12, design: .rounded))
               .foregroundStyle(FlowtonePalette.muted)
           }
@@ -888,89 +888,168 @@ private struct StableAudioSetupGate: View {
   @ObservedObject var model: FlowtoneAppModel
 
   private static let repositoryURL = URL(string: "https://github.com/Stability-AI/stable-audio-3")!
-  private static let mlxInstructionsURL = URL(
-    string: "https://github.com/Stability-AI/stable-audio-3/tree/main/optimized/mlx")!
   private static let modelCardURL = URL(
     string: "https://huggingface.co/stabilityai/stable-audio-3-small-music")!
+  private static let optimizedModelURL = URL(
+    string: "https://huggingface.co/stabilityai/stable-audio-3-optimized")!
   private static let licenseURL = URL(string: "https://stability.ai/license")!
+  private static let gemmaTermsURL = URL(string: "https://ai.google.dev/gemma/terms")!
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 9) {
-      Text("НАСТРОЙКА STABLE AUDIO 3 SMALL")
+    VStack(alignment: .leading, spacing: 14) {
+      Text("ЛОКАЛЬНАЯ МУЗЫКАЛЬНАЯ МОДЕЛЬ")
         .font(.system(size: 8, weight: .semibold, design: .monospaced))
         .tracking(0.8)
         .foregroundStyle(FlowtonePalette.muted)
 
-      Text("Flowtone не принимает условия за вас и не скачивает веса с ограниченным доступом.")
-        .font(.system(size: 10, design: .rounded))
+      Text("Flowtone сам скачает лёгкий MLX-набор, подготовит его и сразу подключит генерацию.")
+        .font(.system(size: 12, weight: .semibold, design: .rounded))
         .foregroundStyle(FlowtonePalette.ink)
         .fixedSize(horizontal: false, vertical: true)
 
-      VStack(alignment: .leading, spacing: 5) {
-        Text("Установите исполняемый модуль вручную по пути:")
-          .font(.system(size: 9, design: .rounded))
-          .foregroundStyle(FlowtonePalette.muted)
-        Text(model.stableAudioRuntimePath)
-          .font(.system(size: 8, design: .monospaced))
-          .textSelection(.enabled)
-          .foregroundStyle(FlowtonePalette.ink)
-          .fixedSize(horizontal: false, vertical: true)
-        Label(
-          model.stableAudioRuntimeIsExecutable
-            ? "Исполняемый модуль найден"
-            : "Исполняемый модуль не найден или недоступен",
-          systemImage: model.stableAudioRuntimeIsExecutable
-            ? "checkmark.circle.fill" : "xmark.circle"
+      HStack(alignment: .top, spacing: 12) {
+        setupFact(icon: "internaldrive", title: "Около 2 ГБ", detail: "только Small-Music")
+        setupFact(icon: "lock.shield", title: "Проверка файлов", detail: "до запуска")
+        setupFact(icon: "wifi.slash", title: "Офлайн после установки", detail: "без облака")
+      }
+
+      VStack(alignment: .leading, spacing: 9) {
+        Text("1. ПРОЧИТАЙТЕ УСЛОВИЯ")
+          .font(.system(size: 9, weight: .semibold, design: .monospaced))
+          .tracking(0.8)
+          .foregroundStyle(FlowtonePalette.signal)
+
+        Text(
+          "Код Flowtone распространяется отдельно от весов Stable Audio. Откройте официальные страницы и лично примите применимые условия."
         )
-        .font(.system(size: 9, design: .rounded))
-        .foregroundStyle(
-          model.stableAudioRuntimeIsExecutable ? FlowtonePalette.muted : FlowtonePalette.signal)
-      }
-
-      HStack(spacing: 7) {
-        officialPageButton("Репозиторий", url: Self.repositoryURL)
-        officialPageButton("MLX-инструкция", url: Self.mlxInstructionsURL)
-      }
-      HStack(spacing: 7) {
-        officialPageButton("Страница модели", url: Self.modelCardURL)
-        officialPageButton("Лицензия", url: Self.licenseURL)
-      }
-
-      Text(
-        "На Hugging Face доступ к модели ограничен, и она также ссылается на условия Gemma. Примите применимые условия только лично на официальных страницах."
-      )
-      .font(.system(size: 9, design: .rounded))
-      .foregroundStyle(FlowtonePalette.muted)
-      .fixedSize(horizontal: false, vertical: true)
-
-      Text(model.stableAudioTermsAcknowledgementText)
-        .font(.system(size: 9, design: .rounded))
+        .font(.system(size: 10, design: .rounded))
         .foregroundStyle(FlowtonePalette.muted)
         .fixedSize(horizontal: false, vertical: true)
 
-      if model.hasAcknowledgedStableAudioTerms {
-        Label("Отметка о прочтении сохранена", systemImage: "checkmark.circle.fill")
-          .font(.system(size: 9, design: .rounded))
-          .foregroundStyle(FlowtonePalette.muted)
-      } else {
-        Button(action: model.acknowledgeStableAudioTermsRead) {
-          Text("Я сам(а) открыл(а) и прочитал(а) официальные условия")
-            .font(.system(size: 9, weight: .semibold, design: .rounded))
-            .multilineTextAlignment(.leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        HStack(spacing: 7) {
+          officialPageButton("Модель", url: Self.modelCardURL)
+          officialPageButton("MLX-набор", url: Self.optimizedModelURL)
+          officialPageButton("Лицензия", url: Self.licenseURL)
         }
-        .buttonStyle(.bordered)
-        .tint(FlowtonePalette.signal)
-        .accessibilityHint(model.stableAudioTermsAcknowledgementText)
-      }
+        HStack(spacing: 7) {
+          officialPageButton("Условия Gemma", url: Self.gemmaTermsURL)
+          officialPageButton("Исходный код", url: Self.repositoryURL)
+        }
 
-      Button("Проверить локальный движок", action: model.refreshGenerationRuntime)
-        .font(.system(size: 9, weight: .semibold, design: .rounded))
-        .buttonStyle(.bordered)
-        .tint(FlowtonePalette.signal)
-        .accessibilityHint("Повторно проверит исполняемый модуль по указанному пути")
+        if model.hasAcknowledgedStableAudioTerms {
+          Label("Прочтение условий подтверждено на этом Mac", systemImage: "checkmark.circle.fill")
+            .font(.system(size: 10, design: .rounded))
+            .foregroundStyle(FlowtonePalette.muted)
+        } else {
+          Button(action: model.acknowledgeStableAudioTermsRead) {
+            Text("Я лично открыл(а) и прочитал(а) официальные условия")
+              .font(.system(size: 10, weight: .semibold, design: .rounded))
+              .multilineTextAlignment(.leading)
+              .frame(maxWidth: .infinity, alignment: .leading)
+          }
+          .buttonStyle(.bordered)
+          .tint(FlowtonePalette.signal)
+          .accessibilityHint(model.stableAudioTermsAcknowledgementText)
+        }
+      }
+      .padding(14)
+      .background(FlowtonePalette.panel.opacity(0.68), in: RoundedRectangle(cornerRadius: 12))
+      .overlay { RoundedRectangle(cornerRadius: 12).stroke(FlowtonePalette.line) }
+
+      VStack(alignment: .leading, spacing: 9) {
+        Text("2. СКАЧАЙТЕ И ПОДКЛЮЧИТЕ")
+          .font(.system(size: 9, weight: .semibold, design: .monospaced))
+          .tracking(0.8)
+          .foregroundStyle(FlowtonePalette.signal)
+
+        if model.stableAudioInstallationIsComplete && !model.isInstallingStableAudio {
+          Label("Stable Audio 3 Small подключена", systemImage: "checkmark.seal.fill")
+            .font(.system(size: 12, weight: .semibold, design: .rounded))
+            .foregroundStyle(FlowtonePalette.ink)
+          Text("Новые треки генерируются локально. Интернет модели больше не нужен.")
+            .font(.system(size: 10, design: .rounded))
+            .foregroundStyle(FlowtonePalette.muted)
+          Button("Проверить подключение", action: model.refreshGenerationRuntime)
+            .buttonStyle(.bordered)
+            .tint(FlowtonePalette.signal)
+        } else if model.isInstallingStableAudio {
+          HStack(spacing: 10) {
+            ProgressView()
+              .controlSize(.small)
+              .tint(FlowtonePalette.signal)
+            VStack(alignment: .leading, spacing: 3) {
+              Text(model.stableAudioInstallationTitle)
+                .font(.system(size: 11, weight: .semibold, design: .rounded))
+                .foregroundStyle(FlowtonePalette.ink)
+              Text(model.stableAudioInstallationDetail)
+                .font(.system(size: 9, design: .rounded))
+                .foregroundStyle(FlowtonePalette.muted)
+                .fixedSize(horizontal: false, vertical: true)
+            }
+          }
+          ProgressView(value: model.stableAudioInstallationFraction)
+            .tint(FlowtonePalette.signal)
+          Button("Отменить установку", action: model.cancelStableAudioInstallation)
+            .buttonStyle(.bordered)
+            .tint(FlowtonePalette.signal)
+        } else {
+          Text(model.stableAudioInstallationDetail)
+            .font(.system(size: 10, design: .rounded))
+            .foregroundStyle(FlowtonePalette.muted)
+            .fixedSize(horizontal: false, vertical: true)
+
+          if let error = model.stableAudioInstallationErrorText {
+            Label(error, systemImage: "exclamationmark.triangle.fill")
+              .font(.system(size: 9, design: .rounded))
+              .foregroundStyle(FlowtonePalette.signal)
+              .fixedSize(horizontal: false, vertical: true)
+          }
+
+          Button(action: model.installStableAudioModel) {
+            Label("Скачать и подключить · около 2 ГБ", systemImage: "arrow.down.circle.fill")
+              .font(.system(size: 11, weight: .semibold, design: .rounded))
+              .frame(maxWidth: .infinity)
+          }
+          .buttonStyle(.borderedProminent)
+          .tint(FlowtonePalette.signal)
+          .disabled(!model.hasAcknowledgedStableAudioTerms)
+          .accessibilityHint("Скачает официальный MLX runtime и музыкальные веса на этот Mac")
+        }
+      }
+      .padding(14)
+      .background(FlowtonePalette.panel.opacity(0.68), in: RoundedRectangle(cornerRadius: 12))
+      .overlay { RoundedRectangle(cornerRadius: 12).stroke(FlowtonePalette.line) }
+
+      DisclosureGroup("Где хранится модель") {
+        Text(model.stableAudioRuntimePath)
+          .font(.system(size: 8, design: .monospaced))
+          .textSelection(.enabled)
+          .foregroundStyle(FlowtonePalette.muted)
+          .fixedSize(horizontal: false, vertical: true)
+          .padding(.top, 5)
+      }
+      .font(.system(size: 9, design: .rounded))
+      .tint(FlowtonePalette.signal)
     }
     .padding(.top, 2)
+  }
+
+  private func setupFact(icon: String, title: String, detail: String) -> some View {
+    HStack(spacing: 7) {
+      Image(systemName: icon)
+        .foregroundStyle(FlowtonePalette.signal)
+      VStack(alignment: .leading, spacing: 1) {
+        Text(title)
+          .font(.system(size: 9, weight: .semibold, design: .rounded))
+          .foregroundStyle(FlowtonePalette.ink)
+        Text(detail)
+          .font(.system(size: 8, design: .rounded))
+          .foregroundStyle(FlowtonePalette.muted)
+      }
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .padding(9)
+    .background(FlowtonePalette.panel.opacity(0.5), in: RoundedRectangle(cornerRadius: 10))
   }
 
   private func officialPageButton(_ title: String, url: URL) -> some View {

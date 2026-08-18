@@ -105,6 +105,9 @@ final class FlowtoneAppModel: ObservableObject {
   @Published private(set) var generationRuntimeReady = false
   @Published private(set) var modelRuntimeStatusText = "Проверяю локальную модель…"
   @Published private(set) var hasAcknowledgedStableAudioTerms = false
+  @Published private(set) var isInstallingStableAudio = false
+  @Published private(set) var stableAudioInstallationProgress: StableAudioInstallationProgress?
+  @Published private(set) var stableAudioInstallationErrorText: String?
   @Published private(set) var isUsingDevelopmentAudio = false
   @Published private(set) var playbackPositionSeconds: TimeInterval = 0
   @Published private(set) var playbackDurationSeconds: TimeInterval = 0
@@ -130,6 +133,7 @@ final class FlowtoneAppModel: ObservableObject {
   private let library: TrackLibrary
   private let scheduler: GenerationScheduler
   private let modelCatalog = ModelRuntimeCatalog()
+  private let stableAudioInstaller = StableAudioInstaller()
   private let licenseAcknowledgement: ModelLicenseAcknowledgement
   private let crossfade = EqualPowerCrossfade()
   private var playbackQueue = RadioPlaybackQueue()
@@ -138,6 +142,7 @@ final class FlowtoneAppModel: ObservableObject {
   private var playbackHistory: [UUID] = []
   private var playbackHistoryIndex: Int?
   private var memoryPressureObservationID: UUID?
+  private var stableAudioInstallationTask: Task<Void, Never>?
 
   private lazy var playbackController: AudioPlaybackController = {
     let curve = EqualPowerCrossfade()
@@ -189,6 +194,7 @@ final class FlowtoneAppModel: ObservableObject {
   }
 
   deinit {
+    stableAudioInstallationTask?.cancel()
     if let memoryPressureObservationID {
       SystemMemoryPressureMonitor.shared.removeObservation(memoryPressureObservationID)
     }
@@ -222,7 +228,22 @@ final class FlowtoneAppModel: ObservableObject {
 
   var stableAudioRuntimePath: String { modelCatalog.stableAudioRuntimePath }
 
-  var stableAudioRuntimeIsExecutable: Bool { modelCatalog.hasStableAudioExecutable }
+  var stableAudioInstallationIsComplete: Bool {
+    stableAudioInstaller.manifest.isComplete()
+  }
+
+  var stableAudioInstallationFraction: Double {
+    stableAudioInstallationProgress?.completedFraction ?? 0
+  }
+
+  var stableAudioInstallationTitle: String {
+    stableAudioInstallationProgress?.title ?? "Готово к автоматической установке"
+  }
+
+  var stableAudioInstallationDetail: String {
+    stableAudioInstallationProgress?.detail
+      ?? "Flowtone скачает только лёгкую музыкальную модель и подключит её автоматически."
+  }
 
   var stableAudioTermsAcknowledgementText: String {
     ModelLicenseAcknowledgement.stableAudioTermsAcknowledgementText
@@ -352,6 +373,45 @@ final class FlowtoneAppModel: ObservableObject {
 
   func refreshGenerationRuntime() {
     Task { await configureGenerationRuntime() }
+  }
+
+  func installStableAudioModel() {
+    guard hasAcknowledgedStableAudioTerms else {
+      stableAudioInstallationErrorText =
+        "Сначала откройте официальные страницы и подтвердите, что прочитали условия."
+      return
+    }
+    guard !isInstallingStableAudio else { return }
+    stableAudioInstallationErrorText = nil
+    isInstallingStableAudio = true
+
+    stableAudioInstallationTask = Task { [weak self] in
+      guard let self else { return }
+      do {
+        try await stableAudioInstaller.install { [weak self] progress in
+          await MainActor.run {
+            self?.stableAudioInstallationProgress = progress
+            self?.modelRuntimeStatusText = progress.title
+          }
+        }
+        await configureGenerationRuntime()
+        isInstallingStableAudio = false
+        statusText = "Stable Audio 3 установлена · можно запускать эфир"
+      } catch is CancellationError {
+        isInstallingStableAudio = false
+        stableAudioInstallationProgress = nil
+        modelRuntimeStatusText = "Установка отменена · уже загруженные веса можно продолжить позже"
+      } catch {
+        isInstallingStableAudio = false
+        stableAudioInstallationErrorText = error.localizedDescription
+        modelRuntimeStatusText = "Модель пока не установлена"
+      }
+      stableAudioInstallationTask = nil
+    }
+  }
+
+  func cancelStableAudioInstallation() {
+    stableAudioInstallationTask?.cancel()
   }
 
   func skipTrack() {

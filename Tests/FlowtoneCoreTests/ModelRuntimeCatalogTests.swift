@@ -14,7 +14,8 @@ import Testing
       catalog.availability(for: .light)
         == .unavailable(
           reason:
-            "Исполняемый модуль Stable Audio 3 не найден по пути \(stableAudioRuntimePath(root)).")
+            "Stable Audio 3 ещё не установлена. Откройте настройку модели, чтобы скачать и подключить её автоматически."
+        )
     )
     #expect(catalog.stableAudioEngine() == nil)
     #expect(!catalog.hasStableAudioExecutable)
@@ -53,7 +54,8 @@ import Testing
       catalog.availability(for: .light)
         == .unavailable(
           reason:
-            "Исполняемый модуль Stable Audio 3 не найден по пути \(stableAudioRuntimePath(root)).")
+            "Stable Audio 3 ещё не установлена. Откройте настройку модели, чтобы скачать и подключить её автоматически."
+        )
     )
     #expect(catalog.stableAudioEngine() == nil)
     #expect(!catalog.hasStableAudioExecutable)
@@ -79,7 +81,4 @@ import Testing
     return root
   }
 
-  private func stableAudioRuntimePath(_ root: URL) -> String {
-    root.appendingPathComponent(ModelRuntimeCatalog.stableAudioExecutableName).path
-  }
 }

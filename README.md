@@ -29,11 +29,11 @@ Flowtone — бесплатное приложение для macOS с откр�
 - genre-aware prompt-профили и автоматический BPM с контролируемым разнообразием;
 - остановка записи новых треков и всплывающее предупреждение при заполнении лимита;
 - последовательная генерация с потоковой записью WAV, очисткой временного кэша и отменой при memory pressure;
-- автоматическое обнаружение установленного Stable Audio runtime;
+- автоматическая установка и подключение Stable Audio 3 Small без Terminal: official pinned runtime, SHA-256 verification, progress/cancel и offline generation;
 - выбранная владельцем тёплая retro-иконка с пластинкой;
 - MIT-лицензия исходного кода, unsigned `.app` packager, macOS CI и скачиваемый Actions artifact.
 
-Настоящие model weights в репозиторий и `.app` не входят. На тестовом Mac официальный Stable Audio 3 Small MLX runtime установлен вне Git и прошёл offline benchmark. Каждый production generation process запускается в offline-режиме и завершается после одного трека, освобождая память модели.
+Настоящие model weights в репозиторий и `.app` не входят. После личного прочтения official model/license pages приложение само скачивает public optimized Small-Music bundle в Application Support и подключает его; token не нужен и не сохраняется. На тестовом Mac официальный Stable Audio 3 Small MLX runtime прошёл offline benchmark. Каждый production generation process запускается в offline-режиме и завершается после одного трека, освобождая память модели.
 
 - [Product Requirements Document](docs/PRD.md)
 - [Музыкальная карта пресетов](docs/MUSIC-PRESETS.md)
@@ -70,7 +70,7 @@ scripts/package-app.sh /tmp/flowtone-package
 
 Debug-сборка использует явно помеченный synthetic fallback, если локальная модель не установлена.
 Release-сборка генерирует музыку только через найденный Stable Audio runtime. Подключение настоящего
-Stable Audio описано в [implementation guide](docs/IMPLEMENTATION.md).
+Stable Audio выполняется из окна «Настроить модель» и описано в [implementation guide](docs/IMPLEMENTATION.md).
 В собранный `.app` автоматически включается выбранная иконка из `Assets/AppIcon.icns`.
 
 ## Лицензирование
@@ -79,6 +79,6 @@ Stable Audio описано в [implementation guide](docs/IMPLEMENTATION.md).
 
 ## Unsigned macOS artifact
 
-Каждый `push`, включая tag push, создаёт в GitHub Actions artifact `flowtone-unsigned-macos-app-<commit SHA>` на 14 дней. Artifact содержит `Flowtone-unsigned-macos.app.zip`; ZIP создан через `ditto --keepParent`, поэтому сохраняет macOS app bundle. GitHub Release не создаётся.
+Каждый `push`, включая tag push, создаёт в GitHub Actions artifact `flowtone-unsigned-macos-app-<commit SHA>` на 14 дней. Artifact содержит `Flowtone-1.0.1-macos-arm64-unsigned.zip`, SHA-256 и русскую инструкцию; ZIP создан через `ditto --keepParent`, поэтому сохраняет macOS app bundle. GitHub Release не создаётся.
 
 Bundle не подписан и не notarized. macOS может потребовать явного подтверждения пользователя при первом запуске. Не скачивайте `.app` или ZIP из непроверенных источников.

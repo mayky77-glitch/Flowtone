@@ -47,7 +47,9 @@ public struct ModelRuntimeCatalog: Sendable {
       return hasStableAudioExecutable
         ? .available
         : .unavailable(
-          reason: "Исполняемый модуль Stable Audio 3 не найден по пути \(stableAudioRuntimePath).")
+          reason:
+            "Stable Audio 3 ещё не установлена. Откройте настройку модели, чтобы скачать и подключить её автоматически."
+        )
     case .quality:
       return .unsupported(
         reason: "Режим качества недоступен: адаптер ACE-Step ещё не подключён.")

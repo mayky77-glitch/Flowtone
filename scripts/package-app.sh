@@ -11,7 +11,6 @@ app_bundle="$output_dir/Flowtone.app"
 contents_dir="$app_bundle/Contents"
 macos_dir="$contents_dir/MacOS"
 resources_dir="$contents_dir/Resources"
-binary_path=".build/release/Flowtone"
 icon_path="Assets/AppIcon.icns"
 
 if [[ -e "$app_bundle" ]]; then
@@ -19,10 +18,17 @@ if [[ -e "$app_bundle" ]]; then
   exit 1
 fi
 
-swift build -c release --product Flowtone
+swift build -c release --product Flowtone --arch arm64
+binary_dir="$(swift build -c release --arch arm64 --show-bin-path)"
+binary_path="$binary_dir/Flowtone"
 
 if [[ ! -x "$binary_path" ]]; then
   echo "Release executable was not produced: $binary_path" >&2
+  exit 1
+fi
+
+if ! file "$binary_path" | grep -q "arm64"; then
+  echo "Release executable is not arm64: $binary_path" >&2
   exit 1
 fi
 
@@ -53,9 +59,9 @@ cat >"$contents_dir/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.0</string>
+  <string>1.0.1</string>
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>2</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>NSHighResolutionCapable</key>

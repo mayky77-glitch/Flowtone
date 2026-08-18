@@ -28,20 +28,14 @@ jobs:
       - name: Package unsigned app
         shell: bash
         run: |
-          package_root="$(mktemp -d)"
-          trap 'rm -rf "$package_root"' EXIT
-          scripts/package-app.sh "$package_root/output"
-          ditto -c -k --sequesterRsrc --keepParent \
-            "$package_root/output/Flowtone.app" \
-            "$package_root/Flowtone-unsigned-macos.app.zip"
-          test -s "$package_root/Flowtone-unsigned-macos.app.zip"
-          mkdir -p dist
-          cp "$package_root/Flowtone-unsigned-macos.app.zip" dist/
+          scripts/package-shareable-release.sh dist
       - name: Upload unsigned macOS app artifact
         if: github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
           name: flowtone-unsigned-macos-app-${{ github.sha }}
-          path: dist/Flowtone-unsigned-macos.app.zip
+          path: |
+            dist/Flowtone-1.0.1-macos-arm64-unsigned.zip
+            dist/Flowtone-1.0.1-macos-arm64-unsigned.zip.sha256
           if-no-files-found: error
           retention-days: 14

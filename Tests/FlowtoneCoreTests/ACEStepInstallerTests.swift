@@ -4,6 +4,36 @@ import Testing
 @testable import FlowtoneCore
 
 @Suite struct ACEStepInstallerTests {
+  @Test func processWorkingDirectoryExistsBeforeAndAfterRuntimeExtraction() throws {
+    let root = FileManager.default.temporaryDirectory
+      .appendingPathComponent("flowtone-ace-working-directory-\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: root) }
+    let manifest = ACEStepInstallationManifest(applicationSupportRoot: root)
+
+    let beforeExtraction = try manifest.processWorkingDirectory()
+    #expect(beforeExtraction == manifest.installerRoot)
+    var beforeIsDirectory: ObjCBool = false
+    #expect(
+      FileManager.default.fileExists(
+        atPath: beforeExtraction.path,
+        isDirectory: &beforeIsDirectory
+      ))
+    #expect(beforeIsDirectory.boolValue)
+
+    let preExtractionProcess = Process()
+    preExtractionProcess.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+    preExtractionProcess.currentDirectoryURL = beforeExtraction
+    try preExtractionProcess.run()
+    preExtractionProcess.waitUntilExit()
+    #expect(preExtractionProcess.terminationStatus == 0)
+
+    try FileManager.default.createDirectory(
+      at: manifest.runtimeRoot,
+      withIntermediateDirectories: true
+    )
+    #expect(try manifest.processWorkingDirectory() == manifest.runtimeRoot)
+  }
+
   @Test func manifestPinsOfficialSourceAndUsesLocalBridge() {
     let manifest = ACEStepInstallationManifest(
       applicationSupportRoot: URL(fileURLWithPath: "/tmp/Flowtone ACE Tests"))

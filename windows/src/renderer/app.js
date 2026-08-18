@@ -327,8 +327,8 @@ function bindEvents() {
     await saveSettings({ storageMode: button.dataset.storageMode });
     if (state.settings.storageMode === 'live') await pruneTransient();
   }));
-  elements.shuffle.addEventListener('change', () => saveSettings({ shuffleEnabled: elements.shuffle.checked }));
-  elements.mix.addEventListener('change', () => saveSettings({ mixGenresEnabled: elements.mix.checked }));
+  elements.shuffle.addEventListener('change', () => saveControlSetting({ shuffleEnabled: elements.shuffle.checked }));
+  elements.mix.addEventListener('change', () => saveControlSetting({ mixGenresEnabled: elements.mix.checked }));
   $$('[data-energy]').forEach((button) => button.addEventListener('click', () => saveSettings({ energy: button.dataset.energy })));
   elements.mood.addEventListener('change', () => saveSettings({ mood: elements.mood.value }));
   let vibeTimer;
@@ -343,13 +343,14 @@ function bindEvents() {
   elements.vibe.addEventListener('change', persistVibe);
   elements.vibe.addEventListener('blur', persistVibe);
   elements.generation.addEventListener('change', async () => {
-    await saveSettings({ generationEnabled: elements.generation.checked });
-    if (!elements.generation.checked) {
-      if (state.generationTimer) clearTimeout(state.generationTimer);
-      state.generationTimer = null;
-      await api.cancelGeneration();
-    }
-    else scheduleAutomaticGeneration();
+    const enabled = elements.generation.checked;
+    await saveControlSetting({ generationEnabled: enabled }, async () => {
+      if (!enabled) {
+        if (state.generationTimer) clearTimeout(state.generationTimer);
+        state.generationTimer = null;
+        await api.cancelGeneration();
+      } else scheduleAutomaticGeneration();
+    });
   });
   $('#genres-all').addEventListener('click', () => saveSettings({ selectedGenres: state.genres }));
   $('#genres-none').addEventListener('click', () => saveSettings({ selectedGenres: [], mixGenresEnabled: false }));
@@ -416,7 +417,7 @@ function bindEvents() {
     state.settings.termsAcknowledged = true;
     renderModelManager();
   });
-  $('#cancel-model-operation').addEventListener('click', () => api.cancelGeneration());
+  $('#cancel-model-operation').addEventListener('click', () => api.cancelModelInstallation());
 
   document.addEventListener('keydown', keyboardShortcuts);
   api.onModelProgress(updateModelProgress);
@@ -438,13 +439,23 @@ function bindEvents() {
 }
 
 async function saveSettings(patch) {
-  Object.assign(state.settings, patch);
   const result = await api.updateSettings(patch);
   state.settings = result.settings;
   state.runtime = result.runtime;
   renderControls();
   renderBadges();
   return result;
+}
+
+async function saveControlSetting(patch, afterCommit = () => {}) {
+  return window.FlowtoneUI.settleControlChange({
+    commit: () => saveSettings(patch),
+    onSuccess: afterCommit,
+    onFailure: (error) => {
+      renderControls();
+      showToast(error);
+    },
+  });
 }
 
 function renderAll() {
@@ -983,7 +994,10 @@ function updateModelProgress(progress) {
   $('#model-progress').hidden = false;
   $('#model-progress-title').textContent = progress.title;
   $('#model-progress-detail').textContent = progress.detail;
-  $('#model-progress-bar').value = progress.fraction;
+  const bar = $('#model-progress-bar');
+  if (progress.phase === 'downloading-model' || progress.phase === 'installing') {
+    bar.removeAttribute('value');
+  } else bar.value = progress.fraction;
 }
 
 function vinylPointerDown(event) {

@@ -159,7 +159,7 @@ function registerIPC() {
     return { report, ...librarySnapshot() };
   });
   ipcMain.handle('generation:create', async (_event, rawSettings) => createTrack(rawSettings));
-  ipcMain.handle('generation:cancel', async () => { runtime.cancel(); return true; });
+  ipcMain.handle('generation:cancel', async () => ({ cancelled: runtime.cancelGeneration() }));
   ipcMain.handle('model:acknowledge-terms', async () => {
     settings.termsAcknowledged = true;
     await writeSettings();
@@ -172,6 +172,7 @@ function registerIPC() {
     mainWindow?.webContents.send('runtime-changed', status);
     return status;
   });
+  ipcMain.handle('model:cancel-install', async () => ({ cancelled: runtime.cancelInstallation() }));
   ipcMain.handle('model:uninstall', async (_event, modelId) => {
     const status = await runtime.uninstallModel(modelId);
     mainWindow?.webContents.send('runtime-changed', status);
@@ -252,7 +253,7 @@ function registerPowerEvents() {
   powerMonitor.on('resume', () => mainWindow?.webContents.send('system-status', { kind: 'resume' }));
   memoryTimer = setInterval(() => {
     if (os.freemem() < 768 * 1024 ** 2 && runtime?.generating) {
-      runtime.cancel();
+      runtime.cancelGeneration();
       mainWindow?.webContents.send('system-status', { kind: 'memory-pressure', message: 'Генерация остановлена: Windows срочно нужна память.' });
     }
   }, 5000);

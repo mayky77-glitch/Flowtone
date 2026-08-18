@@ -9,7 +9,7 @@ const { GENRES, composePrompt, createStationConfiguration, generateTitle, genreP
 const { MODEL_GROUPS, MODEL_PROFILES, StableAudioRuntime, recommendGroup, recommendModel, stableRuntimeHealth } = require('../src/runtime.cjs');
 const { TrackLibrary } = require('../src/library.cjs');
 const { shouldReplaceInstalledFlowtone, terminateInstalledFlowtone } = require('../src/instance-guard.cjs');
-const { userMessage } = require('../src/renderer/ui-utils.js');
+const { settleControlChange, userMessage } = require('../src/renderer/ui-utils.js');
 
 test('autoselection scales model with memory and CPU', () => {
   assert.equal(recommendModel({ memoryGiB: 8, logicalCores: 4 }), 'small-efficient');
@@ -119,7 +119,38 @@ test('technical runtime traces become short actionable Russian messages', () => 
   assert.doesNotMatch(tokenizer, /Traceback|C:\\Users/);
   const generic = userMessage(`Traceback (most recent call last): ${'internal details '.repeat(100)}`);
   assert.equal(generic, 'Локальная модель завершила работу с ошибкой. Повторите попытку; если ошибка вернётся, восстановите модель.');
+  assert.equal(
+    userMessage(new TypeError('fetch failed')),
+    'Не удалось скачать файлы модели. Проверьте интернет и повторите установку — уже загруженные данные сохранятся.',
+  );
   assert.ok(userMessage('x'.repeat(500)).length <= 220);
+});
+
+test('generation and model installation cancellation stay isolated', () => {
+  const runtime = new StableAudioRuntime(path.join(os.tmpdir(), 'flowtone-cancel-scope-test'));
+  let aborts = 0;
+  let aceCancels = 0;
+  runtime.activeDownloadAbort = { abort() { aborts += 1; } };
+  runtime.aceRuntime.cancel = () => { aceCancels += 1; };
+  runtime.installing = true;
+  assert.equal(runtime.cancelGeneration(), false);
+  assert.equal(aborts, 0);
+  assert.equal(aceCancels, 0);
+  assert.equal(runtime.cancelInstallation(), true);
+  assert.equal(aborts, 1);
+  assert.equal(aceCancels, 1);
+});
+
+test('failed toggle persistence returns an explicit rollback outcome', async () => {
+  let rolledBack = false;
+  const failure = new Error('settings IPC failed');
+  const outcome = await settleControlChange({
+    commit: async () => { throw failure; },
+    onFailure: async (error) => { rolledBack = error === failure; },
+  });
+  assert.equal(outcome.ok, false);
+  assert.equal(outcome.error, failure);
+  assert.equal(rolledBack, true);
 });
 
 test('station configuration stays deterministic for explicit seed', () => {

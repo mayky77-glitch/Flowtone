@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('flowtone', Object.freeze({
   acknowledgeTerms: () => ipcRenderer.invoke('model:acknowledge-terms'),
   modelStatus: () => ipcRenderer.invoke('model:status'),
   installModel: (modelId) => ipcRenderer.invoke('model:install', modelId),
+  cancelModelInstallation: () => ipcRenderer.invoke('model:cancel-install'),
   uninstallModel: (modelId) => ipcRenderer.invoke('model:uninstall', modelId),
   uninstallAllModels: () => ipcRenderer.invoke('model:uninstall-all'),
   openExternal: (url) => ipcRenderer.invoke('external:open', url),

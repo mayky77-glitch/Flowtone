@@ -117,6 +117,17 @@ public struct ACEStepInstallationManifest: Sendable {
     modelRoot.appendingPathComponent("HuggingFace", isDirectory: true)
   }
 
+  func processWorkingDirectory(fileManager: FileManager = .default) throws -> URL {
+    var isDirectory: ObjCBool = false
+    if fileManager.fileExists(atPath: runtimeRoot.path, isDirectory: &isDirectory),
+      isDirectory.boolValue
+    {
+      return runtimeRoot
+    }
+    try fileManager.createDirectory(at: installerRoot, withIntermediateDirectories: true)
+    return installerRoot
+  }
+
   public func isRuntimeComplete(fileManager: FileManager = .default) -> Bool {
     fileManager.isExecutableFile(atPath: pythonURL.path)
       && fileManager.isExecutableFile(atPath: launcherURL.path)
@@ -673,7 +684,7 @@ public final class ACEStepInstaller: @unchecked Sendable {
     process.executableURL = executableURL
     process.arguments = arguments
     process.environment = environment ?? baseEnvironment
-    process.currentDirectoryURL = manifest.runtimeRoot
+    process.currentDirectoryURL = try manifest.processWorkingDirectory(fileManager: fileManager)
     process.standardOutput = log
     process.standardError = log
     let cancellationRequested = processBox?.register(process) ?? false

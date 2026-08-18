@@ -1,6 +1,6 @@
 {
   "name": "flowtone-windows",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Flowtone — бесконечная локальная музыка",
   "main": "src/main.cjs",
   "author": "mayky77-glitch <274605240+mayky77-glitch@users.noreply.github.com>",

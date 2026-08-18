@@ -298,7 +298,24 @@ class StableAudioRuntime {
     }
   }
 
+  cancelGeneration() {
+    if (!this.generating) return false;
+    this.#cancelActiveOperation();
+    return true;
+  }
+
+  cancelInstallation() {
+    if (!this.installing) return false;
+    this.#cancelActiveOperation();
+    return true;
+  }
+
   cancel() {
+    this.#cancelActiveOperation();
+    return true;
+  }
+
+  #cancelActiveOperation() {
     this.cancelRequested = true;
     this.activeDownloadAbort?.abort();
     this.aceRuntime.cancel();

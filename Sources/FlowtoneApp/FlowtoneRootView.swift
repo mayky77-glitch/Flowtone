@@ -1160,8 +1160,15 @@ private struct StableAudioSetupGate: View {
               .foregroundStyle(FlowtonePalette.muted)
           }
         }
-        ProgressView(value: model.stableAudioInstallationFraction)
-          .tint(FlowtonePalette.signal)
+        if model.stableAudioInstallationProgress?.phase == .downloadingModel
+          || model.stableAudioInstallationProgress?.phase == .installingRuntime
+        {
+          ProgressView()
+            .tint(FlowtonePalette.signal)
+        } else {
+          ProgressView(value: model.stableAudioInstallationFraction)
+            .tint(FlowtonePalette.signal)
+        }
         Button("Отменить установку", action: model.cancelStableAudioInstallation)
           .buttonStyle(.bordered)
           .tint(FlowtonePalette.signal)

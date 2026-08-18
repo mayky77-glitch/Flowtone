@@ -7,7 +7,7 @@ if [[ $# -gt 1 ]]; then
 fi
 
 output_dir="${1:-dist}"
-version="1.2.1"
+version="1.2.2"
 archive_name="Flowtone-${version}-macos-arm64-adhoc.zip"
 archive_path="$output_dir/$archive_name"
 checksum_path="$archive_path.sha256"

@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self' flowtone-audio:; connect-src 'self' flowtone-audio:; font-src 'self'; object-src 'none'; base-uri 'none'">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Flowtone</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="titlebar" aria-hidden="true"><span>FLOWTONE</span></div>
+  <main class="app-shell">
+    <aside class="sidebar" aria-label="Настройки станции">
+      <div class="sidebar-scroll">
+        <header class="brand">
+          <div class="eyebrow">FLOWTONE</div>
+          <h1>Музыка, которая<br>не просит внимания</h1>
+          <div class="broadcast-mark"><span></span> ЛОКАЛЬНЫЙ ЭФИР · БЕЗ КОНЦА</div>
+        </header>
+
+        <section class="control-section">
+          <h2>РЕЖИМ ЭФИРА</h2>
+          <div class="segmented two" role="radiogroup" aria-label="Режим эфира">
+            <button type="button" data-storage-mode="live">Полное радио</button>
+            <button type="button" data-storage-mode="recording">Радио с записью</button>
+          </div>
+          <p id="storage-mode-help" class="help"></p>
+          <label class="switch-row"><span>Перемешивать треки</span><input id="shuffle-toggle" type="checkbox"><i></i></label>
+          <p id="shuffle-help" class="help"></p>
+        </section>
+
+        <section class="control-section">
+          <h2>ЖАНРЫ</h2>
+          <div class="inline-actions">
+            <button id="genres-all" class="small-button" type="button">Выбрать все</button>
+            <button id="genres-none" class="small-button" type="button">Снять все</button>
+          </div>
+          <div id="genre-grid" class="genre-grid"></div>
+          <label class="switch-row"><span>Микс жанров</span><input id="mix-toggle" type="checkbox"><i></i></label>
+          <p id="mix-help" class="help"></p>
+        </section>
+
+        <section class="control-section">
+          <h2>ТЕМП ЭФИРА</h2>
+          <div class="segmented three" role="radiogroup" aria-label="Темп эфира">
+            <button type="button" data-energy="calm">Спокойно</button>
+            <button type="button" data-energy="balanced">Ровно</button>
+            <button type="button" data-energy="driving">Энергично</button>
+          </div>
+          <p id="energy-help" class="help"></p>
+        </section>
+
+        <section class="control-section">
+          <h2>НАСТРОЕНИЕ</h2>
+          <select id="mood-select" aria-label="Настроение">
+            <option value="focused">Фокус</option>
+            <option value="warm">Тепло</option>
+            <option value="dreamy">Мечтательно</option>
+            <option value="dark">Темно</option>
+            <option value="uplifting">Светло</option>
+          </select>
+          <p id="mood-help" class="help"></p>
+        </section>
+
+        <section class="control-section">
+          <h2>ВАЙБ · НЕОБЯЗАТЕЛЬНО</h2>
+          <input id="vibe-input" class="text-input" type="text" maxlength="180" placeholder="Например: дождь за окном, ночной город">
+        </section>
+
+        <section class="control-section generation-control">
+          <label class="switch-row"><span>Локальная генерация</span><input id="generation-toggle" type="checkbox"><i></i></label>
+          <p id="generation-help" class="help"></p>
+        </section>
+
+        <p class="next-track-note">Изменения применяются со следующего трека</p>
+      </div>
+    </aside>
+
+    <section class="stage" aria-label="Сейчас в эфире">
+      <div class="top-badges">
+        <button id="model-badge" class="badge model-badge" type="button">
+          <span class="badge-label">МОДЕЛЬ ГЕНЕРАЦИИ</span>
+          <strong id="model-name">Автоматический подбор</strong>
+          <small id="model-status">Проверяю локальную модель…</small>
+          <em>Настроить модель</em>
+        </button>
+        <div class="library-badge badge">
+          <button id="open-library" type="button">
+            <span class="badge-label">♫ &nbsp;КОЛЛЕКЦИЯ</span>
+            <strong id="library-summary">0 треков · 0 байт</strong>
+          </button>
+          <button id="open-liked" class="liked-zone" type="button"><span>♥</span><small id="liked-summary">0 любимых</small></button>
+        </div>
+      </div>
+
+      <div class="vinyl-space">
+        <div id="vinyl-scene" class="vinyl-scene" aria-label="Пластинка. Перетащите для перемотки" role="slider" aria-valuemin="0" aria-valuemax="120" tabindex="0">
+          <div id="vinyl-record" class="vinyl-record">
+            <div class="vinyl-shine"></div>
+            <div class="vinyl-marker"></div>
+            <div class="record-label"><span id="vinyl-genre">Эмбиент</span><i></i></div>
+          </div>
+          <svg id="tonearm" class="tonearm" viewBox="0 0 420 420" aria-hidden="true">
+            <defs>
+              <linearGradient id="arm-metal" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0" stop-color="#efdfbd"/><stop offset="1" stop-color="#b86433"/>
+              </linearGradient>
+            </defs>
+            <circle cx="356" cy="76" r="28" fill="#382416" stroke="#785033" stroke-width="2"/>
+            <circle cx="356" cy="76" r="11" fill="#e8913d"/>
+            <path id="tonearm-path" d="M356 76 Q333 177 270 290" fill="none" stroke="url(#arm-metal)" stroke-width="9" stroke-linecap="round"/>
+            <g id="needle"><rect x="257" y="280" width="34" height="19" rx="5" fill="#251a14" stroke="#b86433"/><circle cx="263" cy="298" r="3" fill="#e8913d"/></g>
+          </svg>
+          <div id="scratch-label" class="scratch-label">Проведите по пластинке</div>
+        </div>
+      </div>
+
+      <div class="now-playing">
+        <div id="air-label" class="eyebrow">СЕЙЧАС В ЭФИРЕ</div>
+        <div class="marquee"><h2 id="track-title">Тишина перед эфиром</h2></div>
+        <p id="status-text">Загружаю локальную коллекцию…</p>
+      </div>
+
+      <section class="playback-console" aria-label="Управление воспроизведением">
+        <div class="timeline-row">
+          <button id="seek-start" type="button">Начало</button>
+          <time id="time-current">0:00</time>
+          <input id="position-slider" type="range" min="0" max="120" step="0.01" value="0" aria-label="Позиция в треке">
+          <time id="time-duration">0:00</time>
+          <button id="seek-end" type="button">Конец</button>
+        </div>
+        <div class="transport-row">
+          <button id="previous-button" class="round-button transport-glyph" type="button" aria-label="Предыдущая запись">│◀</button>
+          <button id="back-button" class="round-button seek-button" type="button" aria-label="Назад на 15 секунд">−15</button>
+          <button id="play-button" class="play-button" type="button" aria-label="Воспроизвести">▶</button>
+          <button id="forward-button" class="round-button seek-button" type="button" aria-label="Вперёд на 15 секунд">+15</button>
+          <button id="next-button" class="round-button transport-glyph" type="button" aria-label="Следующая запись">▶│</button>
+          <button id="like-button" class="round-button" type="button" aria-label="Добавить в любимые">♡</button>
+          <button id="delete-current" class="round-button delete-glyph" type="button" aria-label="Удалить текущий трек">×</button>
+          <button id="generate-button" class="generate-button" type="button"><span>+ </span><b>Создать первую</b></button>
+        </div>
+        <div class="volume-row"><span aria-hidden="true">−</span><input id="volume-slider" type="range" min="0" max="1" step="0.01" value="0.72" aria-label="Громкость"><span aria-hidden="true">+</span></div>
+      </section>
+
+      <footer class="stage-footer">
+        <span id="storage-footer">▣ Записи остаются на этом компьютере</span>
+        <span id="memory-footer">0 ГБ памяти</span>
+      </footer>
+    </section>
+  </main>
+
+  <div id="modal-backdrop" class="modal-backdrop" hidden></div>
+
+  <section id="library-modal" class="modal library-modal" role="dialog" aria-modal="true" aria-labelledby="library-title" tabindex="-1" hidden>
+    <header class="modal-header">
+      <div><span class="eyebrow">ЛОКАЛЬНАЯ КОЛЛЕКЦИЯ</span><h2 id="library-title">Архив Flowtone</h2><p>Записи хранятся только на этом компьютере</p></div>
+      <button class="close-modal" type="button" aria-label="Закрыть">×</button>
+    </header>
+    <div class="modal-tabs"><button type="button" data-library-tab="tracks">Треки</button><button type="button" data-library-tab="statistics">Статистика</button></div>
+    <div id="library-tracks-view" class="library-content">
+      <div class="library-toolbar">
+        <div class="segmented two compact"><button type="button" data-library-filter="all">Все записи</button><button type="button" data-library-filter="liked">Любимые</button></div>
+        <button id="cleanup-library" class="small-button danger" type="button">Удалить все без лайка</button>
+      </div>
+      <div id="track-list" class="track-list"></div>
+    </div>
+    <div id="library-statistics-view" class="library-content" hidden>
+      <div class="metrics"><article><span>ТРЕКОВ</span><strong id="metric-tracks">0</strong><small>в локальной коллекции</small></article><article><span>ЛЮБИМЫХ</span><strong id="metric-liked">0</strong><small>защищены от очистки</small></article><article><span>ЗАНЯТО</span><strong id="metric-size">0</strong><small>аудио и индекс</small></article></div>
+      <label class="storage-limit">Лимит хранилища <input id="storage-limit" type="number" min="1" max="500" step="1"><span>ГБ</span></label>
+      <div id="genre-statistics" class="genre-statistics"></div>
+    </div>
+  </section>
+
+  <section id="model-modal" class="modal model-modal" role="dialog" aria-modal="true" aria-labelledby="model-title" tabindex="-1" hidden>
+    <header class="modal-header">
+      <div><span class="eyebrow">НАСТРОЙКА МОДЕЛИ</span><h2 id="model-title">Stable Audio 3</h2><p>Автоподбор, установка и удаление без Terminal</p></div>
+      <button class="close-modal" type="button" aria-label="Закрыть">×</button>
+    </header>
+    <div class="model-scroll">
+      <section class="setup-card hardware-card">
+        <h3>ЭТОТ КОМПЬЮТЕР</h3>
+        <div class="hardware-facts"><article><span>ПАМЯТЬ</span><strong id="hardware-memory">—</strong></article><article><span>CPU</span><strong id="hardware-cpu">—</strong></article><article><span>ГРАФИКА</span><strong id="hardware-gpu">—</strong></article></div>
+        <label class="model-preference">Выбор модели <select id="model-preference"><option value="auto">Автоматически</option></select></label>
+        <p id="recommendation-text" class="help"></p>
+      </section>
+      <section class="setup-card terms-card">
+        <h3>1. ПРОЧИТАЙТЕ УСЛОВИЯ</h3>
+        <p>Код Flowtone распространяется отдельно от весов Stable Audio. Откройте официальные страницы и лично примите применимые условия.</p>
+        <div class="link-buttons"><button data-url="https://huggingface.co/stabilityai/stable-audio-3-optimized">Модели</button><button data-url="https://stability.ai/license">Лицензия</button><button data-url="https://ai.google.dev/gemma/terms">Условия Gemma</button><button data-url="https://github.com/Stability-AI/stable-audio-3">Исходный код</button></div>
+        <button id="acknowledge-terms" class="acknowledge-button" type="button">Я лично открыл(а) и прочитал(а) официальные условия</button>
+        <div id="terms-confirmed" class="confirmed" hidden>✓ Прочтение условий подтверждено на этом компьютере</div>
+      </section>
+      <section class="setup-card models-card">
+        <h3>2. УСТАНОВИТЕ ИЛИ УДАЛИТЕ МОДЕЛЬ</h3>
+        <div id="model-list" class="model-list"></div>
+        <div id="model-progress" class="model-progress" hidden><div><strong id="model-progress-title"></strong><small id="model-progress-detail"></small></div><progress id="model-progress-bar" max="1" value="0"></progress><button id="cancel-model-operation" class="small-button" type="button">Отменить</button></div>
+        <p id="model-error" class="model-error" hidden></p>
+      </section>
+      <details class="runtime-path"><summary>Где хранятся модели</summary><code id="runtime-path"></code></details>
+    </div>
+  </section>
+
+  <section id="confirm-modal" class="confirm-modal" role="alertdialog" aria-modal="true" hidden>
+    <h2 id="confirm-title">Подтверждение</h2><p id="confirm-message"></p>
+    <div><button id="confirm-cancel" class="small-button" type="button">Отмена</button><button id="confirm-action" class="danger-button" type="button">Удалить</button></div>
+  </section>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+  <script src="app.js"></script>
+</body>
+</html>

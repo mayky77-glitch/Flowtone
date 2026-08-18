@@ -1,10 +1,10 @@
 # Flowtone — Product Requirements Document
 
-**Версия:** 0.2
+**Версия:** 0.3
 
-**Статус:** Реализован локальный MVP, требуется hardware beta
+**Статус:** Реализован локальный MVP для macOS и Windows, требуется hardware beta
 
-**Дата:** 2026-08-17
+**Дата:** 2026-08-18
 
 **Владелец продукта:** mayky77-glitch
 
@@ -16,6 +16,7 @@
 |---|---|---|
 | 0.1 | 2026-08-16 | Первая версия после продуктового интервью и feasibility research |
 | 0.2 | 2026-08-17 | Зафиксированы двухминутные треки, режимы хранения, автоматические профили, transport/vinyl UX и resource policy |
+| 0.3 | 2026-08-18 | Добавлены Windows 10/11 x64, TFLite runtime, четыре аппаратных профиля, установка/удаление моделей и двухплатформенный GitHub Release |
 
 ## Статусы неизвестного
 
@@ -26,7 +27,7 @@
 
 ## 1. Executive Summary
 
-Flowtone — бесплатное open-source приложение для владельцев Apple Silicon Mac, которым нужна фоновая музыка для работы и концентрации. Пользователь задаёт жанры, темп эфира, настроение и при желании текстовый вайб; точный BPM и жанровый профиль Flowtone выбирает автоматически. После этого Flowtone локально генерирует двухминутные инструментальные треки и воспроизводит их как непрерывную радиостанцию. Продукт убирает поиск плейлистов, рекламу, подписку и зависимость от интернета. Успех MVP означает, что пользователь может слушать станцию не менее часа без поиска другой музыки; длительное ручное тестирование владелец продукта выполнит самостоятельно.
+Flowtone — бесплатное open-source приложение для владельцев Windows x64 и Apple Silicon Mac, которым нужна фоновая музыка для работы и концентрации. Пользователь задаёт жанры, темп эфира, настроение и при желании текстовый вайб; точный BPM, жанровый профиль и подходящий model tier Flowtone выбирает автоматически. После этого Flowtone локально генерирует двухминутные инструментальные треки и воспроизводит их как непрерывную радиостанцию. Продукт убирает поиск плейлистов, рекламу, подписку и зависимость от интернета. Успех MVP означает, что пользователь может слушать станцию не менее часа без поиска другой музыки; длительное ручное тестирование владелец продукта выполнит самостоятельно.
 
 🔶 **Assumption:** проблема характерна не только владельцу проекта, но и заметной группе пользователей Mac, работающих под фоновую музыку. Сейчас гипотеза основана только на личном опыте.
 
@@ -108,16 +109,16 @@ Flowtone — бесплатное open-source приложение для вла
 - Весь пользовательский контент и генерация остаются на Mac.
 - UX начинается не с технического prompt-поля, а с параметров станции.
 - Непрерывность важнее обязательной уникальности: при перегрузке или выключенной генерации разрешены повторы.
-- Flowtone предлагает лёгкий и тяжёлый local engine, рекомендуя вариант по характеристикам Mac.
+- Flowtone рекомендует local engine по характеристикам устройства и разрешает ручной выбор.
 - Каждый созданный трек становится частью локальной коллекции.
 
 ### Модель распространения
 
 - Бесплатное open-source приложение.
 - Исходный код Flowtone распространяется под MIT License.
-- Первая публичная сборка: unsigned arm64 ZIP с `Flowtone.app`, русской инструкцией, MIT license и SHA-256 как GitHub Actions artifact при push/tag, срок хранения 14 дней; GitHub Release не создаётся.
+- Публичная сборка: unsigned Windows x64 `.exe` и Apple Silicon ZIP с SHA-256 в GitHub Release; каждый обычный push также хранит временные Actions artifacts 14 дней.
 - Веса моделей не входят автоматически в MIT-лицензию Flowtone и регулируются отдельными upstream terms.
-- Unsigned-приложение может показать предупреждение Gatekeeper; пользователь должен самостоятельно разрешить запуск.
+- Unsigned-приложение может показать предупреждение SmartScreen или Gatekeeper; пользователь должен самостоятельно подтвердить запуск.
 
 ### Market Opportunity
 
@@ -129,10 +130,10 @@ TAM/SAM/SOM не рассчитывались. Для текущего open-sour
 
 ### 5.1 Пользовательский сценарий
 
-1. Пользователь скачивает unsigned `Flowtone-1.0.1-macos-arm64-unsigned.zip` из GitHub Actions artifacts и распаковывает приложение.
-2. Приложение определяет chip и объём unified memory.
-3. Flowtone рекомендует лёгкую или тяжёлую модель; пользователь может изменить выбор.
-4. Flowtone показывает официальные страницы условий модели и просит пользователя подтвердить, что он лично их прочитал; эта отметка не принимает terms за пользователя. После подтверждения приложение само скачивает проверенный MLX runtime и публичный optimized Small-Music bundle, устанавливает их в Application Support и подключает генерацию.
+1. Пользователь скачивает Windows `.exe` или Apple Silicon ZIP из GitHub Releases.
+2. Приложение определяет CPU и память; Windows дополнительно показывает GPU.
+3. Flowtone рекомендует подходящий модельный профиль; пользователь может изменить выбор.
+4. Flowtone показывает официальные страницы условий модели и просит пользователя подтвердить, что он лично их прочитал; эта отметка не принимает terms за пользователя. После подтверждения приложение само скачивает проверенный MLX runtime на macOS или TFLite/LiteRT runtime на Windows, устанавливает выбранные weights в Application Support и подключает генерацию.
 5. Пользователь выбирает жанровые фильтры, темп эфира и настроение; все жанры можно выбрать или снять одной командой. Звуковой профиль выбирается автоматически. Можно включить случайный жанровый микс; точный BPM подбирается автоматически.
 6. При желании добавляет свободное текстовое описание вайба.
 7. Flowtone запускает станцию и поддерживает очередь готовых треков.
@@ -161,10 +162,13 @@ TAM/SAM/SOM не рассчитывались. Для текущего open-sour
 
 ```mermaid
 flowchart TD
-    UI["SwiftUI App"] --> SC["Station Controller"]
-    UI --> MM["Model Manager"]
-    UI --> LIB["Track Library"]
-    SC --> PLAYER["AVFoundation Player"]
+    MAC["macOS SwiftUI App"] --> SC["Station Controller"]
+    WIN["Windows Electron App"] --> SC
+    MAC --> MM["Model Manager"]
+    WIN --> MM
+    MAC --> LIB["Track Library"]
+    WIN --> LIB
+    SC --> PLAYER["Native/WebAudio Player"]
     SC --> SCHED["Generation Scheduler"]
     SCHED --> RM["Resource Monitor"]
     SCHED --> ENGINE["GenerationEngine interface"]
@@ -182,13 +186,16 @@ flowchart TD
 | Область | Выбор | Причина |
 |---|---|---|
 | UI | Swift 6, SwiftUI | Нативный macOS UX и небольшая runtime-надстройка |
+| Windows UI | Electron 43, HTML/CSS/JS | Тот же UX с native Windows caption/taskbar behavior и secure preload |
 | Playback | AVFoundation, `AVAudioEngine`/`AVAudioPlayerNode` | Gapless scheduling, crossfade и управление render clock |
+| Windows playback | HTMLAudio + WebAudio two-deck graph | Equal-power crossfade, media keys и независимость audio clock от UI |
 | Concurrency | Swift Concurrency, actors | Один владелец очереди, отсутствие параллельных generation jobs |
 | Metadata | Versioned compact JSON index | Малый объём, атомарная запись, простая локальная миграция без отдельного runtime |
 | Audio storage | Application Support | Локальные WAV и временный `Incoming/` cache |
 | Light inference | Stable Audio 3 Small через Core ML или MLX adapter | Компактный instrumental engine с официальным Mac-путём |
+| Windows inference | Stable Audio 3 TFLite/LiteRT | Официальный portable CPU path с Small/Medium precision profiles |
 | Heavy inference | ACE-Step 1.5 через изолированный MLX/helper process | Более тяжёлый quality tier без блокировки UI процесса |
-| Packaging | Xcode, unsigned app zip artifact | Простая доставка через GitHub Actions без GitHub Release, signing и notarization |
+| Packaging | Swift app ZIP + electron-builder NSIS x64 | Два unsigned файла в tag-driven GitHub Release; signing/notarization отдельно |
 | Tests | Swift Testing, smoke/integration harness, короткие runtime checks | Проверка scheduler, storage и непрерывности; длительное ручное тестирование выполняет владелец |
 
 Metadata contract реализован как `library-v1.json`; переход на базу данных не нужен, пока размер индекса не подтвердит обратное.
@@ -255,6 +262,8 @@ Metadata contract реализован как `library-v1.json`; переход 
 |---|---|---|---|
 | Light | Stable Audio 3 Small-Music | M1+, 8 ГБ minimum; 16 ГБ recommended | Основной кандидат MVP |
 | Quality | ACE-Step 1.5 | 24 ГБ+ recommended | Экспериментальный, зависит от benchmark |
+| Windows Small | Stable Audio 3 TFLite Small-Music | 8–24 ГБ RAM; CPU LiteRT | Реализовано: economic/quality precision |
+| Windows Medium | Stable Audio 3 TFLite Medium | 24–32+ ГБ RAM, 12–16+ CPU threads | Реализовано: balanced/max precision |
 
 Все hardware-пороги — 🔶 **Assumption**. Нужны короткие smoke/runtime проверки минимум на M1/8 ГБ, M1 или M2/16 ГБ и современном Mac/24–32 ГБ.
 
@@ -312,18 +321,18 @@ Stable Audio code и model weights имеют разные условия. Дл�
 
 ### Epic Hypothesis
 
-Мы считаем, что локальная инструментальная радиостанция с настройкой жанра и вайба позволит пользователям Mac работать не менее часа без поиска другой музыки, потому что Flowtone заранее генерирует подходящие треки и продолжает играть из локальной коллекции при любой доступности генератора. Проверка: 60-минутные пользовательские сессии, smoke/runtime checks и resource benchmark.
+Мы считаем, что локальная инструментальная радиостанция с настройкой жанра и вайба позволит пользователям Windows и macOS работать не менее часа без поиска другой музыки, потому что Flowtone заранее генерирует подходящие треки и продолжает играть из локальной коллекции при любой доступности генератора. Проверка: 60-минутные пользовательские сессии, smoke/runtime checks и resource benchmark.
 
 ### Story 1 — Первый запуск и настройка модели
 
-Как новый пользователь, я хочу понять, какая модель подходит моему Mac, и подключить её без Terminal.
+Как новый пользователь, я хочу понять, какая модель подходит моему устройству, и подключить её без Terminal.
 
 **Acceptance Criteria:**
 
-- [ ] Flowtone определяет Apple Silicon chip и объём unified memory.
+- [ ] Flowtone определяет CPU и память; на Windows показывает найденный GPU.
 - [ ] Показывает рекомендуемую модель и требования.
 - [ ] Показывает официальные условия модели и даёт локально отметить их прочтение; отметка не принимает terms за пользователя.
-- [ ] После подтверждения скачивает только Stable Audio 3 Small MLX, показывает этапы и позволяет отменить установку.
+- [ ] После подтверждения скачивает Stable Audio 3 Small MLX на macOS или выбранный TFLite-профиль на Windows, показывает этапы и позволяет отменить установку.
 - [ ] Проверяет зафиксированные runtime archives по SHA-256, не сохраняет token/credentials и автоматически подключает offline generation.
 - [ ] Незавершённая установка не выдаётся за готовую; повторная попытка использует уже загруженный model cache.
 
@@ -429,7 +438,7 @@ Stable Audio code и model weights имеют разные условия. Дл�
 
 ### Story 10 — Приватность
 
-Как пользователь, я хочу, чтобы мои запросы и музыка оставались на Mac.
+Как пользователь, я хочу, чтобы мои запросы и музыка оставались на моём устройстве.
 
 **Acceptance Criteria:**
 
@@ -438,7 +447,7 @@ Stable Audio code и model weights имеют разные условия. Дл�
 
 ### Нефункциональные требования
 
-- Только Apple Silicon M1 и новее; Intel не поддерживается.
+- Поддерживаются Apple Silicon M1 и новее, а также Windows 10/11 x64; Intel Mac не поддерживается.
 - Light tier ориентирован на 8 ГБ, 16 ГБ рекомендуется; Quality tier — на 24 ГБ+ до уточнения benchmark.
 - Полная работа offline после загрузки модели.
 - Playback имеет приоритет над generation и storage maintenance.
@@ -456,7 +465,7 @@ Stable Audio code и model weights имеют разные условия. Дл�
 - вокал и генерация текстов песен;
 - облачная генерация и обязательные hosted API;
 - аккаунты, cloud sync и совместные библиотеки;
-- iOS, Windows и Intel Mac;
+- iOS, Android и Intel Mac;
 - социальная лента и публикация треков;
 - ручное редактирование, stems, remix и DAW-функции;
 - экспорт в произвольную папку;
@@ -545,9 +554,17 @@ Future candidates: влияние лайков на генерацию, поль
 - Автоматический installer Stable Audio 3 Small MLX после личного подтверждения чтения official terms; pinned archives, SHA-256, progress/cancel и offline generation.
 - Unsigned arm64 ZIP с приложением, русской инструкцией, MIT license и SHA-256 как GitHub Actions artifact при push/tag (retention 14 days); предупредить о Gatekeeper.
 
+### Slice 4 — Windows parity — реализовано, требуется hardware beta
+
+- Windows shell с тем же station/player/library/model-manager сценарием и 60-Гц видимой анимацией.
+- Stable Audio 3 TFLite с четырьмя профилями, автоподбором по RAM/CPU, ручной установкой/удалением и автоматическим подключением.
+- Один generation process, memory guard, suspend cancellation, hidden-window rendering stop и NSIS x64 installer.
+- Release workflow публикует `.exe`, macOS ZIP и SHA-256 по тегу.
+
 ### Следующий этап — hardware beta
 
 - M1/M2 checks на 8–16 ГБ и ручные сессии владельца.
+- Windows checks минимум на 8/16/24/32 ГБ RAM и разных классах CPU.
 - ACE-Step quality adapter только после отдельного macOS benchmark.
 - Signing/notarization только после отдельного решения и credentials.
 

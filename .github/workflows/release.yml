@@ -1,0 +1,82 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test and build macOS app
+        run: |
+          swift format lint --strict --recursive Package.swift Sources Tests
+          swift test
+          swift build -c release --product Flowtone
+          scripts/package-shareable-release.sh dist
+          cp dist/Flowtone-1.1.0-macos-arm64-unsigned.zip dist/Flowtone-macOS-arm64.zip
+          (cd dist && shasum -a 256 Flowtone-macOS-arm64.zip > Flowtone-macOS-arm64.zip.sha256)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: |
+            dist/Flowtone-macOS-arm64.zip
+            dist/Flowtone-macOS-arm64.zip.sha256
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+      - name: Test and build Windows installer
+        run: |
+          npm ci
+          npm run check
+          npm test
+          npm run dist:win
+      - name: Create checksum
+        shell: pwsh
+        run: |
+          $installer = Get-Item "dist/Flowtone-Setup-Windows-x64.exe"
+          (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLower() + "  " + $installer.Name |
+            Set-Content -NoNewline "dist/Flowtone-Setup-Windows-x64.exe.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: |
+            windows/dist/Flowtone-Setup-Windows-x64.exe
+            windows/dist/Flowtone-Setup-Windows-x64.exe.sha256
+          if-no-files-found: error
+
+  publish:
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view "${{ github.ref_name }}" >/dev/null 2>&1 || \
+            gh release create "${{ github.ref_name }}" --title "Flowtone ${{ github.ref_name }}" --generate-notes
+          gh release upload "${{ github.ref_name }}" release/* --clobber

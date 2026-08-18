@@ -82,6 +82,37 @@ Player поддерживает seek, начало/конец, ±15 секунд
 - Кольца винила рисуются одним `Canvas`, а не отдельной иерархией shape views. Marquee работает на 15 fps, винил — на 60 fps только пока окно видно и трек играет.
 - Единственные циклы ограничены размером очереди, числом WAV frames или количеством UI-дорожек; бесконечного polling loop нет.
 
+## Windows 10/11 x64
+
+Windows-приложение находится в `windows/` и воспроизводит тот же продуктовый сценарий: параметры станции, 29 жанров, локальная коллекция, очередь `current + 2`, equal-power crossfade до 6 секунд, transport, интерактивная пластинка и управление моделями без Terminal. Desktop shell использует Electron, а официальный Windows inference path — Stable Audio 3 TFLite/LiteRT с XNNPACK на CPU.
+
+Автоподбор основан на системной RAM и числе логических CPU-потоков:
+
+| Профиль | Условие рекомендации | DiT / decoder / precision |
+|---|---|---|
+| Small · экономная | ниже остальных порогов | `sm-music` / `same-s` / `w8a8-dyn` |
+| Small · точная | 12+ ГБ, 6+ потоков | `sm-music` / `same-s` / `fp32` |
+| Medium · оптимальная | 24+ ГБ, 12+ потоков | `medium` / `same-l` / `w8a32` |
+| Medium · максимум | 32+ ГБ, 16+ потоков | `medium` / `same-l` / `fp32` |
+
+GPU определяется и показывается пользователю, но не повышает tier: официальный portable runtime этого варианта использует CPU. Рекомендацию можно изменить вручную. Установка автоматически подключает выбранный профиль; удаление не затрагивает музыкальную коллекцию и переключает приложение на другую установленную модель, если она есть.
+
+Runtime и `uv` закреплены по версии и SHA-256. Managed Python 3.11, LiteRT, Hugging Face cache и веса находятся в пользовательской папке Flowtone. После установки generation process работает offline, запускается строго по одному и завершается после каждого трека. При нехватке памяти или уходе Windows в сон process tree отменяется.
+
+Видимая пластинка обновляется с целевой частотой 60 Гц, как на macOS. Цикл перерисовки полностью останавливается на паузе, при сворачивании и скрытии окна. Заголовок обновляется не чаще 15 Гц; аудио и фоновая генерация не зависят от UI animation loop.
+
+Проверка и локальный запуск shell:
+
+```powershell
+cd windows
+npm ci
+npm run check
+npm test
+npm start
+```
+
+Windows installer собирается командой `npm run dist:win`. В CI сборка выполняется на `windows-latest`, что проверяет настоящий NSIS `.exe`, а не кросс-сборку с macOS.
+
 ## Stable Audio 3 Small MLX
 
 Flowtone следует официальному [`optimized/mlx`](https://github.com/Stability-AI/stable-audio-3/tree/main/optimized/mlx) runtime. Adapter запускает executable напрямую через `Process`; prompt не передаётся shell и не интерполируется.
@@ -185,4 +216,4 @@ open /tmp/flowtone-package/Flowtone.app
 
 Скрипт отказывается перезаписывать существующий bundle, включает `Assets/AppIcon.icns` и не выполняет signing или notarization.
 
-При `push` (включая tag) macOS CI упаковывает тот же bundle, русскую инструкцию и MIT license в `Flowtone-1.0.1-macos-arm64-unsigned.zip`, добавляет SHA-256 и сохраняет оба файла как временный GitHub Actions artifact. Ни `.app`, ни ZIP в Git не коммитятся; GitHub Release не создаётся.
+При каждом `push` CI проверяет macOS и Windows и сохраняет временные artifacts. Тег вида `v1.1.0` создаёт GitHub Release с постоянными файлами `Flowtone-macOS-arm64.zip`, `Flowtone-Setup-Windows-x64.exe` и отдельными SHA-256. Ни `.app`, ни `.exe`, ни ZIP в Git не коммитятся.

@@ -35,7 +35,45 @@ jobs:
         with:
           name: flowtone-unsigned-macos-app-${{ github.sha }}
           path: |
-            dist/Flowtone-1.0.1-macos-arm64-unsigned.zip
-            dist/Flowtone-1.0.1-macos-arm64-unsigned.zip.sha256
+            dist/Flowtone-1.1.0-macos-arm64-unsigned.zip
+            dist/Flowtone-1.1.0-macos-arm64-unsigned.zip.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  verify-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: windows
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: windows/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Check JavaScript
+        run: npm run check
+      - name: Run Windows tests
+        run: npm test
+      - name: Build Windows installer
+        run: npm run dist:win
+      - name: Verify installer and checksum
+        shell: pwsh
+        run: |
+          $installer = Get-Item "dist/Flowtone-Setup-Windows-x64.exe"
+          if ($installer.Length -lt 50MB) { throw "Windows installer is unexpectedly small" }
+          (Get-FileHash $installer.FullName -Algorithm SHA256).Hash.ToLower() + "  " + $installer.Name |
+            Set-Content -NoNewline "dist/Flowtone-Setup-Windows-x64.exe.sha256"
+      - name: Upload Windows installer artifact
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowtone-windows-installer-${{ github.sha }}
+          path: |
+            windows/dist/Flowtone-Setup-Windows-x64.exe
+            windows/dist/Flowtone-Setup-Windows-x64.exe.sha256
           if-no-files-found: error
           retention-days: 14

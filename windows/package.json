@@ -1,0 +1,74 @@
+{
+  "name": "flowtone-windows",
+  "version": "1.1.0",
+  "description": "Flowtone — бесконечная локальная музыка",
+  "main": "src/main.cjs",
+  "author": "mayky77-glitch <274605240+mayky77-glitch@users.noreply.github.com>",
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mayky77-glitch/Flowtone.git"
+  },
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test test/*.test.cjs",
+    "check": "node --check src/main.cjs && node --check src/preload.cjs && node --check src/core.cjs && node --check src/genre-profiles.cjs && node --check src/library.cjs && node --check src/runtime.cjs && node --check src/renderer/app.js",
+    "dist:win": "electron-builder --win nsis --x64",
+    "pack:win": "electron-builder --win dir --x64"
+  },
+  "devDependencies": {
+    "electron": "43.4.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "ru.flowtone.app",
+    "productName": "Flowtone",
+    "asar": true,
+    "directories": {
+      "output": "dist",
+      "buildResources": "resources"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/LICENSE.txt",
+        "to": "LICENSE.txt"
+      }
+    ],
+    "extraMetadata": {
+      "main": "src/main.cjs"
+    },
+    "win": {
+      "icon": "resources/AppIcon.ico",
+      "artifactName": "Flowtone-Setup-Windows-x64.${ext}",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowElevation": true,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Flowtone",
+      "uninstallDisplayName": "Flowtone",
+      "deleteAppDataOnUninstall": false,
+      "runAfterFinish": true,
+      "installerLanguages": [
+        "ru_RU"
+      ],
+      "language": "1049"
+    }
+  }
+}

@@ -1,4 +1,7 @@
 .DS_Store
+windows/node_modules/
+windows/dist/
+windows/.cache/
 .env
 .swiftpm/
 .build/

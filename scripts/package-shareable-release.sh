@@ -28,7 +28,8 @@ cp LICENSE "$release_root/LICENSE.txt"
 
 ditto -c -k --sequesterRsrc --keepParent "$release_root" "$archive_path"
 test -s "$archive_path"
-shasum -a 256 "$archive_path" >"$checksum_path"
+checksum_value="$(shasum -a 256 "$archive_path" | awk '{print $1}')"
+printf '%s  %s\n' "$checksum_value" "$archive_name" >"$checksum_path"
 
 unzip -Z1 "$archive_path" >"$staging_root/archive-entries.txt"
 grep -Fxq "Flowtone-${version}/Flowtone.app/Contents/MacOS/Flowtone" \

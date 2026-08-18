@@ -14,7 +14,7 @@
     "start": "electron .",
     "test": "node --test test/*.test.cjs",
     "check": "node --check src/main.cjs && node --check src/preload.cjs && node --check src/core.cjs && node --check src/genre-profiles.cjs && node --check src/library.cjs && node --check src/runtime.cjs && node --check src/renderer/app.js",
-    "dist:win": "electron-builder --win nsis --x64",
+    "dist:win": "electron-builder --win nsis --x64 --publish never",
     "pack:win": "electron-builder --win dir --x64"
   },
   "devDependencies": {

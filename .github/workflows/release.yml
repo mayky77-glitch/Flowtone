@@ -21,7 +21,7 @@ jobs:
           swift test
           swift build -c release --product Flowtone
           scripts/package-shareable-release.sh dist
-          cp dist/Flowtone-1.2.2-macos-arm64-adhoc.zip dist/Flowtone-macOS-arm64.zip
+          cp dist/Flowtone-1.2.3-macos-arm64-adhoc.zip dist/Flowtone-macOS-arm64.zip
           (cd dist && shasum -a 256 Flowtone-macOS-arm64.zip > Flowtone-macOS-arm64.zip.sha256)
       - uses: actions/upload-artifact@v4
         with:

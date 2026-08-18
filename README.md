@@ -38,9 +38,8 @@ Flowtone — бесплатное приложение для Windows и macOS �
 - genre-aware prompt-профили и автоматический BPM с контролируемым разнообразием;
 - остановка записи новых треков и всплывающее предупреждение при заполнении лимита;
 - последовательная генерация с потоковой записью WAV, очисткой временного кэша и отменой при memory pressure;
-- автоматическая установка Stable Audio 3 Small/Medium и ACE-Step 1.5 без Terminal: pinned official runtimes, SHA-256 verification, progress/cancel и локальная генерация;
-- три группы мощности на macOS и Windows; в каждой есть базовый автовыбор и минимум две альтернативы с кратким сравнением плюсов и минусов;
-- четыре Stable Audio 3 TFLite-профиля и четыре ACE-Step-конфигурации Windows: подбор по RAM/CPU/VRAM, ручная установка, удаление и автоматическое подключение;
+- одна дефолтная минимальная Stable Audio 3 Small на macOS и Windows: автоустановка после подтверждения условий, автоподключение и удаление;
+- ясные этапы и таймер установки, а также таймер и кнопка остановки долгой локальной генерации;
 - самовосстановление старого Windows runtime: обязательный `tokenizer.model` проверяется и докачивается по закреплённому SHA-256, а кириллические пути профиля не передаются нативному SentencePiece;
 - один фоновый generation process, ограниченные потоки, контроль свободной памяти и полная остановка анимации в скрытом окне Windows;
 - защита от двойного запуска: Windows development-сборка закрывает старую установленную копию до общего instance lock, а актуальная Flowtone остаётся единственным экземпляром;
@@ -48,13 +47,12 @@ Flowtone — бесплатное приложение для Windows и macOS �
 - выбранная владельцем тёплая retro-иконка с пластинкой;
 - MIT-лицензия исходного кода, ad-hoc signed macOS/неподписанный Windows packagers, CI обеих платформ и GitHub Release по тегу.
 
-Настоящие model weights в репозиторий, `.app` и `.exe` не входят. После личного прочтения official model/license pages приложение само скачивает выбранную модель и подключает её; token не нужен и не сохраняется. Stable Audio остаётся экономной базой, а ACE-Step 1.5 отмечен как амбициозная альтернатива для более длинной и сложной музыкальной формы. На Windows NVIDIA-конфигурация ACE-Step автоматически рекомендуется только при достаточной RAM и VRAM; для остальных ПК сохраняется надёжный LiteRT CPU-путь. Каждый production generation process запускается отдельно, а после одного трека освобождает память модели.
+Настоящие model weights в репозиторий, `.app` и `.exe` не входят. После личного прочтения official model/license pages приложение само скачивает Stable Audio 3 Small и подключает её; token не нужен и не сохраняется. Каждый production generation process запускается отдельно, а после одного трека освобождает память модели. Код альтернативных движков остаётся в репозитории для будущей идеи, но v1.2.3 не показывает, не устанавливает и не запускает их.
 
 - [Product Requirements Document](docs/PRD.md)
 - [Музыкальная карта пресетов](docs/MUSIC-PRESETS.md)
 - Целевые платформы: Windows 10/11 x64 и Apple Silicon M1 или новее
-- Базовый local engine: Stable Audio 3 Small/Medium
-- Амбициозные альтернативы: ACE-Step 1.5 Turbo 0,6B/1,7B и XL 4B
+- Единственный активный local engine: Stable Audio 3 Small
 
 ## Принципы
 
@@ -66,10 +64,8 @@ Flowtone — бесплатное приложение для Windows и macOS �
 
 ## Что ещё нужно проверить перед стабильным выпуском
 
-1. Провести аппаратные тесты ACE-Step на M1/M2/M4 и Windows NVIDIA с 6/12/24 ГБ VRAM.
-2. Профилировать лёгкий Stable tier на M1/M2 с 8–16 ГБ; текущий benchmark относится только к M4/16 ГБ.
-3. Проверить Windows fallback на AMD/Intel и нескольких объёмах RAM; ACE-Step пока автоматически выбирается только для подходящей NVIDIA GPU.
-4. macOS bundle получает цельную ad-hoc подпись после упаковки. Developer ID signing/notarization не входят в scope и потребуют credentials.
+1. Профилировать Stable Audio 3 Small на M1/M2 и Windows-ПК с 8–16 ГБ RAM.
+2. macOS bundle получает цельную ad-hoc подпись после упаковки. Developer ID signing/notarization не входят в scope и потребуют credentials.
 
 ## Быстрый старт для разработки macOS
 
@@ -85,7 +81,7 @@ scripts/package-app.sh /tmp/flowtone-package
 ```
 
 Debug-сборка использует явно помеченный synthetic fallback, если локальная модель не установлена.
-Release-сборка генерирует музыку только через установленный Stable Audio или ACE-Step runtime. Подключение настоящей
+Release-сборка генерирует музыку только через установленный Stable Audio 3 Small runtime. Подключение настоящей
 модели выполняется из окна «Настроить модель» и описано в [implementation guide](docs/IMPLEMENTATION.md).
 В собранный `.app` автоматически включается выбранная иконка из `Assets/AppIcon.icns`.
 
@@ -105,10 +101,10 @@ npm start
 
 ## Лицензирование
 
-Исходный код Flowtone распространяется по [MIT License](LICENSE). Model weights и условия Stable Audio 3, Gemma и ACE-Step не входят в лицензию кода Flowtone и остаются на условиях правообладателей.
+Исходный код Flowtone распространяется по [MIT License](LICENSE). Model weights и условия Stable Audio 3 и Gemma не входят в лицензию кода Flowtone и остаются на условиях правообладателей.
 
 ## Сборки и публикация
 
-Каждый `push` проверяет обе платформы и сохраняет временные Actions artifacts на 14 дней. Тег вида `v1.2.2` дополнительно создаёт GitHub Release с постоянными файлами `Flowtone-Setup-Windows-x64.exe`, `Flowtone-macOS-arm64.zip` и SHA-256 для каждого файла. Подробная Windows-инструкция находится в [docs/INSTALL-WINDOWS-RU.md](docs/INSTALL-WINDOWS-RU.md).
+Каждый `push` проверяет обе платформы и сохраняет временные Actions artifacts на 14 дней. Тег вида `v1.2.3` дополнительно создаёт GitHub Release с постоянными файлами `Flowtone-Setup-Windows-x64.exe`, `Flowtone-macOS-arm64.zip` и SHA-256 для каждого файла. Подробная Windows-инструкция находится в [docs/INSTALL-WINDOWS-RU.md](docs/INSTALL-WINDOWS-RU.md).
 
 macOS bundle подписан ad-hoc, но не Developer ID и не notarized; Windows installer не подписан. Система может потребовать явное подтверждение при первом запуске. Не скачивайте Flowtone из непроверенных источников.

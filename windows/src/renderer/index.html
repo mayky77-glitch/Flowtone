@@ -173,27 +173,26 @@
 
   <section id="model-modal" class="modal model-modal" role="dialog" aria-modal="true" aria-labelledby="model-title" tabindex="-1" hidden>
     <header class="modal-header">
-      <div><span class="eyebrow">НАСТРОЙКА МОДЕЛИ</span><h2 id="model-title">Музыкальные модели</h2></div>
+      <div><span class="eyebrow">ЛОКАЛЬНАЯ ГЕНЕРАЦИЯ</span><h2 id="model-title">Музыкальная модель</h2></div>
       <button class="close-modal" type="button" aria-label="Закрыть">×</button>
     </header>
     <div class="model-scroll">
       <section class="setup-card hardware-card">
-        <h3>ЭТОТ КОМПЬЮТЕР</h3>
+        <h3>ОДНА ДЕФОЛТНАЯ МОДЕЛЬ</h3>
         <div class="hardware-facts"><article><span>ПАМЯТЬ</span><strong id="hardware-memory">—</strong></article><article><span>CPU</span><strong id="hardware-cpu">—</strong></article><article><span>ГРАФИКА</span><strong id="hardware-gpu">—</strong></article></div>
-        <label class="model-preference">Выбор модели <select id="model-preference"><option value="auto">Автоматически</option></select></label>
         <p id="recommendation-text" class="help"></p>
       </section>
       <section class="setup-card terms-card">
         <h3>1. ПРОЧИТАЙТЕ УСЛОВИЯ</h3>
-        <p>Код Flowtone распространяется отдельно от весов Stable Audio и ACE-Step. Откройте официальные страницы и лично примите применимые условия.</p>
-        <div class="link-buttons"><button data-url="https://huggingface.co/stabilityai/stable-audio-3-optimized">Stable Audio</button><button data-url="https://stability.ai/license">Лицензия</button><button data-url="https://ai.google.dev/gemma/terms">Условия Gemma</button><button data-url="https://github.com/Stability-AI/stable-audio-3">Код Stable</button><button data-url="https://github.com/ace-step/ACE-Step-1.5">ACE-Step 1.5</button></div>
-        <button id="acknowledge-terms" class="acknowledge-button" type="button">Я лично открыл(а) и прочитал(а) официальные условия</button>
+        <p>Код Flowtone распространяется отдельно от весов Stable Audio. Откройте официальные страницы и лично примите применимые условия.</p>
+        <div class="link-buttons"><button data-url="https://huggingface.co/stabilityai/stable-audio-3-optimized">Stable Audio</button><button data-url="https://stability.ai/license">Лицензия</button><button data-url="https://ai.google.dev/gemma/terms">Условия Gemma</button><button data-url="https://github.com/Stability-AI/stable-audio-3">Код Stable</button></div>
+        <button id="acknowledge-terms" class="acknowledge-button" type="button">Подтвердить и скачать модель</button>
         <div id="terms-confirmed" class="confirmed" hidden>✓ Прочтение условий подтверждено на этом компьютере</div>
       </section>
       <section class="setup-card models-card">
-        <h3>2. УСТАНОВИТЕ ИЛИ УДАЛИТЕ МОДЕЛЬ</h3>
+        <h3>2. УСТАНОВКА</h3>
         <div id="model-list" class="model-list"></div>
-        <div id="model-progress" class="model-progress" hidden><div><strong id="model-progress-title"></strong><small id="model-progress-detail"></small></div><progress id="model-progress-bar" max="1" value="0"></progress><button id="cancel-model-operation" class="small-button" type="button">Отменить</button></div>
+        <div id="model-progress" class="model-progress" hidden><div><strong id="model-progress-title"></strong><span id="model-progress-elapsed">0:00</span><small id="model-progress-detail"></small></div><progress id="model-progress-bar" max="1" value="0"></progress><button id="cancel-model-operation" class="small-button" type="button">Отменить</button></div>
         <p id="model-error" class="model-error" hidden></p>
       </section>
       <details class="runtime-path"><summary>Где хранятся модели</summary><code id="runtime-path"></code></details>

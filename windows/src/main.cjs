@@ -10,7 +10,7 @@ const { spawn } = require('node:child_process');
 const { pathToFileURL } = require('node:url');
 const { TrackLibrary } = require('./library.cjs');
 const { GENRES, GENRE_LABELS, composePrompt, createStationConfiguration } = require('./core.cjs');
-const { MODEL_PROFILES, StableAudioRuntime, basicHardwareProfile } = require('./runtime.cjs');
+const { DEFAULT_MODEL_ID, StableAudioRuntime, basicHardwareProfile } = require('./runtime.cjs');
 const { terminateInstalledFlowtone } = require('./instance-guard.cjs');
 
 app.setName('Flowtone');
@@ -47,7 +47,7 @@ const DEFAULT_SETTINGS = {
   mood: 'focused',
   vibe: '',
   generationEnabled: true,
-  modelPreference: 'auto',
+  modelPreference: DEFAULT_MODEL_ID,
   volume: 0.72,
   storageLimitGiB: 5,
   termsAcknowledged: false,
@@ -169,6 +169,8 @@ function registerIPC() {
   ipcMain.handle('model:install', async (_event, modelId) => {
     if (!settings.termsAcknowledged) throw new Error('Сначала откройте и прочитайте официальные условия.');
     const status = await runtime.installModel(modelId);
+    settings.modelPreference = DEFAULT_MODEL_ID;
+    await writeSettings();
     mainWindow?.webContents.send('runtime-changed', status);
     return status;
   });
@@ -324,8 +326,7 @@ function sanitizeSettings(value) {
     mood: ['focused', 'warm', 'dreamy', 'dark', 'uplifting'].includes(value.mood) ? value.mood : 'focused',
     vibe: String(value.vibe || '').replace(/[\r\n\t]+/g, ' ').slice(0, 180),
     generationEnabled: value.generationEnabled !== false,
-    modelPreference: ['auto', ...Object.keys(MODEL_PROFILES)].includes(value.modelPreference)
-      ? value.modelPreference : 'auto',
+    modelPreference: DEFAULT_MODEL_ID,
     volume: Math.min(Math.max(Number(value.volume) || 0, 0), 1),
     storageLimitGiB: Math.min(Math.max(Math.round(Number(value.storageLimitGiB) || 5), 1), 500),
     termsAcknowledged: Boolean(value.termsAcknowledged),

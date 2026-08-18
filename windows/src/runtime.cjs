@@ -18,6 +18,7 @@ const TOKENIZER_RELATIVE_PATH = 'models/tokenizer.model';
 const TOKENIZER_SHA256 = '61a7b147390c64585d6c3543dd6fc636906c9af3865a5548f27f31aee1d4c8e2';
 const TOKENIZER_REMOTE_URL = `https://raw.githubusercontent.com/Stability-AI/stable-audio-3/${SOURCE_REVISION}/optimized/tflite/${TOKENIZER_RELATIVE_PATH}`;
 const TOKENIZER_COMPATIBILITY_MARKER = 'LoadFromSerializedProto(model_path.read_bytes())';
+const DEFAULT_MODEL_ID = 'small-efficient';
 
 const MODEL_PROFILES = {
   'small-efficient': {
@@ -139,7 +140,6 @@ class StableAudioRuntime {
     await Promise.all([
       fsp.mkdir(this.downloadsRoot, { recursive: true }),
       fsp.mkdir(this.modelsRoot, { recursive: true }),
-      this.aceRuntime.initialize(),
     ]);
     try {
       await this.#repairStableRuntimeCompatibility();
@@ -152,29 +152,24 @@ class StableAudioRuntime {
 
   async status(preference = 'auto') {
     const hardware = this.hardware || basicHardwareProfile();
-    const recommendedModel = recommendModel(hardware);
-    const recommendedGroup = recommendGroup(hardware);
-    const installedModels = Object.values(MODEL_PROFILES)
-      .filter((profile) => this.#profileIsInstalled(profile)).map((profile) => profile.id);
-    const requested = preference === 'auto' ? recommendedModel : preference;
-    const connectedModel = installedModels.includes(requested)
-      ? requested
-      : installedModels.includes(recommendedModel)
-        ? recommendedModel
-        : installedModels[0] || null;
+    const defaultProfile = MODEL_PROFILES[DEFAULT_MODEL_ID];
+    const installedModels = this.#profileIsInstalled(defaultProfile) ? [DEFAULT_MODEL_ID] : [];
+    const connectedModel = installedModels.includes(DEFAULT_MODEL_ID) ? DEFAULT_MODEL_ID : null;
     const stableRuntime = stableRuntimeHealth(this.runtimeRoot, this.#pythonExecutable());
     return {
       supported: process.platform === 'win32',
-      runtimeReady: installedModels.length > 0,
-      recommendedModel,
+      runtimeReady: connectedModel !== null,
+      recommendedModel: DEFAULT_MODEL_ID,
       connectedModel,
       installedModels,
-      models: Object.values(MODEL_PROFILES),
-      modelGroups: MODEL_GROUPS,
-      recommendedGroup,
+      models: [defaultProfile],
+      modelGroups: [{
+        id: 'default', title: 'ДЕФОЛТНАЯ МОДЕЛЬ', requirement: 'экономный локальный режим', modelIds: [DEFAULT_MODEL_ID],
+      }],
+      recommendedGroup: 'default',
       installing: this.installing,
       generating: this.generating,
-      runtimePath: `${this.runtimeRoot}\n${this.aceRuntime.runtimeRoot}`,
+      runtimePath: this.runtimeRoot,
       stableRuntimeRepairNeeded: stableRuntime.repairNeeded || Boolean(this.stableRuntimeRepairError),
       stableRuntimeRepairDetail: this.stableRuntimeRepairError || stableRuntime.missingFiles.join(', '),
       hardware,
@@ -182,9 +177,12 @@ class StableAudioRuntime {
   }
 
   async installModel(modelId) {
-    if (process.platform !== 'win32') throw new Error('Установка Windows-модели доступна только в Windows.');
     const profile = MODEL_PROFILES[modelId];
     if (!profile) throw new Error('Неизвестный профиль модели.');
+    if (modelId !== DEFAULT_MODEL_ID) {
+      throw new Error('В этой версии Flowtone доступна только минимальная Stable Audio 3 Small.');
+    }
+    if (process.platform !== 'win32') throw new Error('Установка Windows-модели доступна только в Windows.');
     if (this.installing || this.generating) throw new Error('Другая операция с моделью уже выполняется.');
     this.installing = true;
     this.cancelRequested = false;
@@ -211,6 +209,9 @@ class StableAudioRuntime {
   async uninstallModel(modelId) {
     const profile = MODEL_PROFILES[modelId];
     if (!profile) throw new Error('Неизвестный профиль модели.');
+    if (modelId !== DEFAULT_MODEL_ID) {
+      throw new Error('В этой версии можно удалить только дефолтную модель.');
+    }
     this.cancel();
     await this.#waitForProcessExit();
     if (profile.family === 'ace-step') {
@@ -249,6 +250,9 @@ class StableAudioRuntime {
 
   async generate({ modelId, prompt, negativePrompt, durationSeconds, seed, outputPath }) {
     const profile = MODEL_PROFILES[modelId];
+    if (modelId !== DEFAULT_MODEL_ID) {
+      throw new Error('Текущая версия Flowtone генерирует только через Stable Audio 3 Small.');
+    }
     if (!profile || !this.#profileIsInstalled(profile)) throw new Error('Выбранная модель не установлена.');
     if (this.generating || this.installing) throw new Error('Модель уже занята.');
     if (os.freemem() < 1.25 * 1024 ** 3) throw new Error('Генерация отложена: Windows не хватает свободной памяти.');
@@ -659,6 +663,6 @@ function stableRuntimeHealth(runtimeRoot, pythonExecutable = path.join(runtimeRo
 }
 
 module.exports = {
-  MODEL_GROUPS, MODEL_PROFILES, StableAudioRuntime, basicHardwareProfile, recommendGroup, recommendModel,
+  DEFAULT_MODEL_ID, MODEL_GROUPS, MODEL_PROFILES, StableAudioRuntime, basicHardwareProfile, recommendGroup, recommendModel,
   stableRuntimeHealth,
 };

@@ -15,6 +15,11 @@ const state = {
   history: [],
   historyIndex: -1,
   isGenerating: false,
+  cancelGenerationRequested: false,
+  generationStartedAt: 0,
+  modelInstallationStartedAt: 0,
+  lastModelProgress: null,
+  operationClock: null,
   isWindowVisible: true,
   libraryFilter: 'all',
   libraryGenreFilter: null,
@@ -370,7 +375,10 @@ function bindEvents() {
   elements.next.addEventListener('click', nextTrack);
   elements.like.addEventListener('click', toggleCurrentLike);
   elements.deleteCurrent.addEventListener('click', requestCurrentDeletion);
-  elements.generate.addEventListener('click', () => requestGeneration(true));
+  elements.generate.addEventListener('click', () => {
+    if (state.isGenerating) cancelActiveGeneration();
+    else requestGeneration(true);
+  });
   elements.position.addEventListener('pointerdown', () => { state.sliderDragging = true; });
   elements.position.addEventListener('input', () => deck.seek(Number(elements.position.value)));
   elements.position.addEventListener('change', () => { state.sliderDragging = false; });
@@ -406,16 +414,14 @@ function bindEvents() {
   $('#cleanup-library').addEventListener('click', requestCleanup);
   $('#storage-limit').addEventListener('change', () => saveSettings({ storageLimitGiB: Number($('#storage-limit').value) }));
 
-  $('#model-preference').addEventListener('change', async () => {
-    const result = await saveSettings({ modelPreference: $('#model-preference').value });
-    state.runtime = result.runtime;
-    renderModelManager();
-  });
   $$('.link-buttons button').forEach((button) => button.addEventListener('click', () => api.openExternal(button.dataset.url)));
   $('#acknowledge-terms').addEventListener('click', async () => {
-    await api.acknowledgeTerms();
-    state.settings.termsAcknowledged = true;
-    renderModelManager();
+    try {
+      await api.acknowledgeTerms();
+      state.settings.termsAcknowledged = true;
+      renderModelManager();
+      if (!state.runtime.installedModels.includes('small-efficient')) await installModel('small-efficient');
+    } catch (error) { showToast(userMessage(error)); }
   });
   $('#cancel-model-operation').addEventListener('click', () => api.cancelModelInstallation());
 
@@ -521,8 +527,7 @@ function renderControls() {
 function renderBadges() {
   const model = state.runtime?.models.find((item) => item.id === state.runtime.connectedModel);
   const recommended = state.runtime?.models.find((item) => item.id === state.runtime.recommendedModel);
-  elements.modelName.textContent = state.settings.modelPreference === 'auto'
-    ? `Авто · ${recommended?.title || 'подбор модели'}` : (model?.title || 'Модель не установлена');
+  elements.modelName.textContent = model?.title || recommended?.title || 'Модель не установлена';
   elements.modelStatus.textContent = model ? `${model.title} готова · локальная генерация`
     : `Рекомендуется ${recommended?.title || 'Stable Audio 3'} · требуется установка`;
   elements.librarySummary.textContent = `${state.statistics.trackCount} ${plural(state.statistics.trackCount, 'трек', 'трека', 'треков')} · ${formatBytes(state.statistics.byteSize)}`;
@@ -543,10 +548,15 @@ function renderPlayback() {
   elements.deleteCurrent.disabled = !track;
   elements.previous.disabled = previousHistoryIndex() < 0;
   elements.next.disabled = !track && !state.runtime?.connectedModel;
-  elements.generate.disabled = !state.settings.generationEnabled || !state.runtime?.connectedModel || state.isGenerating;
+  elements.generate.disabled = state.cancelGenerationRequested
+    || (!state.isGenerating && (!state.settings.generationEnabled || !state.runtime?.connectedModel));
   elements.generate.classList.toggle('loading', state.isGenerating);
-  elements.generate.querySelector('b').textContent = state.isGenerating ? 'Создаю запись…' : (track ? 'Создать ещё' : 'Создать первую');
-  elements.airLabel.textContent = state.isGenerating ? 'СОЗДАЁТСЯ НОВАЯ ЗАПИСЬ' : 'СЕЙЧАС В ЭФИРЕ';
+  const elapsed = elapsedText(state.generationStartedAt);
+  elements.generate.querySelector('b').textContent = state.cancelGenerationRequested
+    ? 'Останавливаю…'
+    : state.isGenerating ? `Остановить · ${elapsed}` : (track ? 'Создать ещё' : 'Создать первую');
+  elements.generate.setAttribute('aria-label', state.isGenerating ? 'Остановить генерацию' : 'Создать трек');
+  elements.airLabel.textContent = state.isGenerating ? `СОЗДАЁТСЯ · ${elapsed}` : 'СЕЙЧАС В ЭФИРЕ';
   elements.volume.value = state.settings.volume;
   updateMediaMetadata();
   api.setPlaybackState({ isPlaying: deck.playing });
@@ -644,15 +654,8 @@ function renderModelManager() {
   $('#hardware-cpu').title = state.hardware.cpu;
   $('#hardware-gpu').textContent = state.hardware.gpu;
   $('#hardware-gpu').title = state.hardware.gpu;
-  const preference = $('#model-preference');
-  const currentOptions = new Set([...preference.options].map((option) => option.value));
-  for (const model of state.runtime.models) {
-    if (currentOptions.has(model.id)) continue;
-    const option = document.createElement('option'); option.value = model.id; option.textContent = model.title; preference.append(option);
-  }
-  preference.value = state.settings.modelPreference;
-  const recommended = state.runtime.models.find((model) => model.id === state.runtime.recommendedModel);
-  $('#recommendation-text').textContent = `Автоподбор рекомендует «${recommended?.title}». Flowtone учитывает ${state.hardware.memoryGiB} ГБ RAM, ${state.hardware.logicalCores} потоков CPU и ${state.hardware.gpuMemoryGiB || 0} ГБ видеопамяти. ACE-Step автоматически выбирается только для подходящей NVIDIA GPU; иначе используется надёжный LiteRT CPU-путь.`;
+  const selectedModel = state.runtime.models[0];
+  $('#recommendation-text').textContent = 'Flowtone использует одну дефолтную экономную модель. После установки она подключается автоматически; выбирать движок не нужно.';
   $('#acknowledge-terms').hidden = state.settings.termsAcknowledged;
   $('#terms-confirmed').hidden = !state.settings.termsAcknowledged;
   $('#runtime-path').textContent = state.runtime.runtimePath;
@@ -660,57 +663,31 @@ function renderModelManager() {
     $('#model-error').textContent = 'Старая установка Stable Audio неполная. Нажмите «Восстановить» у нужной модели — сохранённые треки не пострадают.';
     $('#model-error').hidden = false;
   }
-  const groups = state.runtime.modelGroups || [];
-  $('#model-list').replaceChildren(...groups.map((group) => {
-    const section = document.createElement('section');
-    section.className = `model-power-group${group.id === state.runtime.recommendedGroup ? ' current' : ''}`;
-    const header = document.createElement('header');
-    const heading = document.createElement('div');
-    const name = document.createElement('strong'); name.textContent = group.title;
-    const requirement = document.createElement('small'); requirement.textContent = group.requirement;
-    heading.append(name, requirement); header.append(heading);
-    if (group.id === state.runtime.recommendedGroup) {
-      const current = document.createElement('em'); current.textContent = 'ЭТОТ ПК'; header.append(current);
-    }
-    const cards = document.createElement('div'); cards.className = 'model-group-cards';
-    for (const modelId of group.modelIds) {
-      const model = state.runtime.models.find((item) => item.id === modelId);
-      if (!model) continue;
-      const installed = state.runtime.installedModels.includes(model.id);
-      const connected = state.runtime.connectedModel === model.id;
-      const option = document.createElement('article');
-      option.className = `model-option${model.id === state.runtime.recommendedModel ? ' recommended' : ''}${connected ? ' connected' : ''}`;
-      const info = document.createElement('div');
-      const title = document.createElement('strong'); title.textContent = model.title;
-      if (model.id === state.runtime.recommendedModel) { const tag = document.createElement('em'); tag.textContent = 'АВТОВЫБОР'; title.append(tag); }
-      if (model.ambitious) { const tag = document.createElement('em'); tag.textContent = 'АМБИЦИОЗНАЯ'; title.append(tag); }
-      if (connected) { const tag = document.createElement('em'); tag.textContent = 'ПОДКЛЮЧЕНА'; title.append(tag); }
-      const detail = document.createElement('p'); detail.textContent = `${model.detail} · около ${model.estimatedGiB.toLocaleString('ru-RU')} ГБ`;
-      const better = document.createElement('p'); better.className = 'model-better'; better.textContent = `＋ ${model.better}`;
-      const worse = document.createElement('p'); worse.className = 'model-worse'; worse.textContent = `− ${model.worse}`;
-      info.append(title, detail, better, worse);
-      const actions = document.createElement('div'); actions.className = 'model-actions';
-      if (installed) {
-        if (!connected) {
-          const connect = document.createElement('button'); connect.type = 'button'; connect.textContent = 'Подключить';
-          connect.addEventListener('click', () => connectModel(model.id)); actions.append(connect);
-        }
-        const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = 'Удалить'; remove.classList.add('uninstall');
-        remove.addEventListener('click', () => requestModelUninstall(model)); actions.append(remove);
-      } else {
-        const install = document.createElement('button'); install.type = 'button';
-        install.textContent = model.family === 'stable-audio' && state.runtime.stableRuntimeRepairNeeded
-          ? 'Восстановить' : 'Установить';
-        install.addEventListener('click', () => installModel(model.id)); actions.append(install);
-      }
-      info.dataset.installed = installed;
-      option.append(info, actions); cards.append(option);
-    }
-    section.append(header, cards);
-    return section;
-  }));
+  const installed = selectedModel && state.runtime.installedModels.includes(selectedModel.id);
+  const connected = selectedModel && state.runtime.connectedModel === selectedModel.id;
+  const option = document.createElement('article');
+  option.className = `model-option recommended${connected ? ' connected' : ''}`;
+  const info = document.createElement('div');
+  const title = document.createElement('strong'); title.textContent = selectedModel?.title || 'Stable Audio 3 Small';
+  const defaultTag = document.createElement('em'); defaultTag.textContent = 'ДЕФОЛТНАЯ'; title.append(defaultTag);
+  if (connected) { const tag = document.createElement('em'); tag.textContent = 'ПОДКЛЮЧЕНА'; title.append(tag); }
+  const detail = document.createElement('p');
+  detail.textContent = `${selectedModel?.detail || 'Экономная локальная модель'} · около ${(selectedModel?.estimatedGiB || 1.2).toLocaleString('ru-RU')} ГБ`;
+  const purpose = document.createElement('p'); purpose.className = 'model-better';
+  purpose.textContent = 'Самая низкая нагрузка на RAM и CPU; вся генерация остаётся на компьютере.';
+  info.append(title, detail, purpose);
+  const actions = document.createElement('div'); actions.className = 'model-actions';
+  if (installed) {
+    const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = 'Удалить'; remove.classList.add('uninstall');
+    remove.addEventListener('click', () => requestModelUninstall(selectedModel)); actions.append(remove);
+  } else {
+    const install = document.createElement('button'); install.type = 'button';
+    install.textContent = state.runtime.stableRuntimeRepairNeeded ? 'Восстановить' : 'Установить';
+    install.addEventListener('click', () => installModel(selectedModel.id)); actions.append(install);
+  }
+  option.append(info, actions);
+  $('#model-list').replaceChildren(option);
   const busy = state.runtime.installing || state.runtime.generating;
-  $('#model-preference').disabled = busy;
   $('#model-list').querySelectorAll('button').forEach((button) => { button.disabled = busy; });
 }
 
@@ -871,6 +848,9 @@ async function requestGeneration(playWhenReady, automatic = false) {
     return;
   }
   state.isGenerating = true;
+  state.cancelGenerationRequested = false;
+  state.generationStartedAt = Date.now();
+  ensureOperationClock();
   renderPlayback();
   setStatus('Создаю новую локальную запись…');
   try {
@@ -886,14 +866,28 @@ async function requestGeneration(playWhenReady, automatic = false) {
     }
     if (state.settings.storageMode === 'live') await pruneTransient();
   } catch (error) {
-    const message = userMessage(error);
+    const message = state.cancelGenerationRequested
+      ? 'Генерация остановлена · сохранённые треки не затронуты'
+      : userMessage(error);
     setStatus(message);
     if (!automatic) showToast(message);
   } finally {
     state.isGenerating = false;
+    state.cancelGenerationRequested = false;
+    state.generationStartedAt = 0;
+    stopOperationClockIfIdle();
     renderAll();
     if (state.currentTrackId && state.readyTrackIds.length < 2) scheduleAutomaticGeneration();
   }
+}
+
+async function cancelActiveGeneration() {
+  if (!state.isGenerating || state.cancelGenerationRequested) return;
+  state.cancelGenerationRequested = true;
+  setStatus('Останавливаю локальную генерацию…');
+  renderPlayback();
+  try { await api.cancelGeneration(); }
+  catch (error) { state.cancelGenerationRequested = false; showToast(userMessage(error)); renderPlayback(); }
 }
 
 function scheduleAutomaticGeneration() {
@@ -954,6 +948,9 @@ async function installModel(modelId) {
   if (!state.settings.termsAcknowledged) { showToast('Сначала откройте и прочитайте официальные условия.'); return; }
   $('#model-error').hidden = true;
   state.runtime.installing = true;
+  state.modelInstallationStartedAt = Date.now();
+  state.lastModelProgress = null;
+  ensureOperationClock();
   renderModelManager();
   try {
     state.runtime = await api.installModel(modelId);
@@ -964,6 +961,9 @@ async function installModel(modelId) {
     $('#model-error').textContent = userMessage(error); $('#model-error').hidden = false;
   } finally {
     state.runtime.installing = false;
+    state.modelInstallationStartedAt = 0;
+    state.lastModelProgress = null;
+    stopOperationClockIfIdle();
     $('#model-progress').hidden = true;
     renderModelManager(); renderBadges();
   }
@@ -980,17 +980,18 @@ async function connectModel(modelId) {
 }
 
 async function requestModelUninstall(model) {
-  const confirmed = await confirmAction({ title: 'Удалить модель с устройства?', message: `${model.title} и её веса будут удалены. Локальные треки останутся. Если есть другая совместимая модель, Flowtone подключит её автоматически.` });
+  const confirmed = await confirmAction({ title: 'Удалить модель с устройства?', message: `${model.title} и её веса будут удалены. Локальные треки останутся, а для новой генерации модель нужно будет установить снова.` });
   if (!confirmed) return;
   try {
     state.runtime = await api.uninstallModel(model.id);
-    if (state.settings.modelPreference === model.id) await saveSettings({ modelPreference: 'auto' });
+    await saveSettings({ modelPreference: 'small-efficient' });
     renderModelManager(); renderBadges(); showToast('Модель удалена.');
   }
   catch (error) { showToast(userMessage(error)); }
 }
 
 function updateModelProgress(progress) {
+  state.lastModelProgress = progress;
   $('#model-progress').hidden = false;
   $('#model-progress-title').textContent = progress.title;
   $('#model-progress-detail').textContent = progress.detail;
@@ -998,6 +999,31 @@ function updateModelProgress(progress) {
   if (progress.phase === 'downloading-model' || progress.phase === 'installing') {
     bar.removeAttribute('value');
   } else bar.value = progress.fraction;
+  $('#model-progress-elapsed').textContent = elapsedText(state.modelInstallationStartedAt);
+}
+
+function elapsedText(startedAt) {
+  const total = startedAt ? Math.max(0, Math.floor((Date.now() - startedAt) / 1000)) : 0;
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+}
+
+function ensureOperationClock() {
+  if (state.operationClock) return;
+  state.operationClock = setInterval(() => {
+    if (state.isGenerating && !state.cancelGenerationRequested) {
+      renderPlayback();
+      setStatus(`Генерация идёт · ${elapsedText(state.generationStartedAt)} · трек появится после завершения`);
+    }
+    if (state.runtime?.installing) {
+      $('#model-progress-elapsed').textContent = elapsedText(state.modelInstallationStartedAt);
+    }
+  }, 1000);
+}
+
+function stopOperationClockIfIdle() {
+  if (state.isGenerating || state.runtime?.installing || !state.operationClock) return;
+  clearInterval(state.operationClock);
+  state.operationClock = null;
 }
 
 function vinylPointerDown(event) {

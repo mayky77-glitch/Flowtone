@@ -114,12 +114,14 @@ final class FlowtoneAppModel: ObservableObject {
   @Published private(set) var currentTrackID: UUID?
   @Published private(set) var statusText = "Загружаю локальную коллекцию…"
   @Published private(set) var isGenerating = false
+  @Published private(set) var generationElapsedSeconds = 0
   @Published private(set) var isPlaying = false
   @Published private(set) var isLibraryLoading = true
   @Published private(set) var generationRuntimeReady = false
   @Published private(set) var modelRuntimeStatusText = "Проверяю локальную модель…"
   @Published private(set) var hasAcknowledgedStableAudioTerms = false
   @Published private(set) var isInstallingStableAudio = false
+  @Published private(set) var modelInstallationElapsedSeconds = 0
   @Published private(set) var stableAudioInstallationProgress: StableAudioInstallationProgress?
   @Published private(set) var stableAudioInstallationErrorText: String?
   @Published private(set) var installedModelIDs: Set<MusicModelID> = []
@@ -159,7 +161,6 @@ final class FlowtoneAppModel: ObservableObject {
   private let scheduler: GenerationScheduler
   private let modelCatalog = ModelRuntimeCatalog()
   private let stableAudioInstaller = StableAudioInstaller()
-  private let aceStepInstaller = ACEStepInstaller()
   private let licenseAcknowledgement: ModelLicenseAcknowledgement
   private let crossfade = EqualPowerCrossfade()
   private var playbackQueue = RadioPlaybackQueue()
@@ -169,6 +170,8 @@ final class FlowtoneAppModel: ObservableObject {
   private var playbackHistoryIndex: Int?
   private var memoryPressureObservationID: UUID?
   private var modelInstallationTask: Task<Void, Never>?
+  private var modelInstallationClockTask: Task<Void, Never>?
+  private var generationClockTask: Task<Void, Never>?
 
   private lazy var playbackController: AudioPlaybackController = {
     let curve = EqualPowerCrossfade()
@@ -217,9 +220,8 @@ final class FlowtoneAppModel: ObservableObject {
       UserDefaults.standard.object(forKey: Self.shuffleKey) as? Bool ?? true
     let support = ModelRecommender().recommendation(for: .current)
     hardwareSupport = support
-    modelPreference =
-      UserDefaults.standard.string(forKey: Self.modelPreferenceKey)
-      .flatMap(ModelPreference.init(rawValue:)) ?? .automatic
+    modelPreference = .automatic
+    UserDefaults.standard.set(ModelPreference.automatic.rawValue, forKey: Self.modelPreferenceKey)
     let savedStorageLimit = UserDefaults.standard.object(forKey: Self.storageLimitKey) as? Int
     storageLimitGiB = max(1, savedStorageLimit ?? 5)
     licenseAcknowledgement = ModelLicenseAcknowledgement()
@@ -241,6 +243,8 @@ final class FlowtoneAppModel: ObservableObject {
 
   deinit {
     modelInstallationTask?.cancel()
+    modelInstallationClockTask?.cancel()
+    generationClockTask?.cancel()
     if let memoryPressureObservationID {
       SystemMemoryPressureMonitor.shared.removeObservation(memoryPressureObservationID)
     }
@@ -252,28 +256,20 @@ final class FlowtoneAppModel: ObservableObject {
       return hardware.isAppleSilicon
         ? "Нужно не менее 8 ГБ объединённой памяти"
         : "Нужен Mac с Apple Silicon"
-    case .supported(let recommended, let warning):
-      let name = modelName(for: recommended)
+    case .supported(_, let warning):
+      let name = modelName(for: MusicModelID.stableSmall)
       return warning == nil ? name : "\(name) · тестовый режим"
     }
   }
 
-  var recommendedModelTier: ModelTier {
-    guard case .supported(let recommended, _) = hardwareSupport else { return .light }
-    return recommended
-  }
+  var recommendedModelTier: ModelTier { .light }
 
-  var recommendedModelID: MusicModelID {
-    recommendedModelTier == .light ? .stableSmall : .stableMedium
-  }
+  var recommendedModelID: MusicModelID { .stableSmall }
 
-  var requestedModelID: MusicModelID {
-    modelPreference.requestedModelID ?? recommendedModelID
-  }
+  var requestedModelID: MusicModelID { .stableSmall }
 
   var selectedModelText: String {
-    let name = modelName(for: activeModelID ?? requestedModelID)
-    return modelPreference == .automatic ? "Авто · \(name)" : name
+    modelName(for: .stableSmall)
   }
 
   var canGenerateTrack: Bool { generationEnabled && generationRuntimeReady && !isStoragePaused }
@@ -290,7 +286,7 @@ final class FlowtoneAppModel: ObservableObject {
 
   var stableAudioRuntimePath: String { modelCatalog.stableAudioRuntimePath }
 
-  var modelRuntimePaths: String { modelCatalog.modelRuntimePaths }
+  var modelRuntimePaths: String { stableAudioRuntimePath }
 
   var stableAudioInstallationIsComplete: Bool {
     installedModelIDs.contains(requestedModelID)
@@ -315,9 +311,18 @@ final class FlowtoneAppModel: ObservableObject {
   }
 
   var generationActionTitle: String {
-    isUsingDevelopmentAudio
+    if isGenerating { return "Остановить · \(generationElapsedText)" }
+    return isUsingDevelopmentAudio
       ? (currentTrack == nil ? "Создать тестовую" : "Создать тестовую ещё")
       : (currentTrack == nil ? "Создать первую" : "Создать ещё")
+  }
+
+  var generationElapsedText: String {
+    Self.formatTime(TimeInterval(generationElapsedSeconds))
+  }
+
+  var modelInstallationElapsedText: String {
+    Self.formatTime(TimeInterval(modelInstallationElapsedSeconds))
   }
 
   var selectedModelWarning: String? {
@@ -434,7 +439,11 @@ final class FlowtoneAppModel: ObservableObject {
   func acknowledgeStableAudioTermsRead() {
     licenseAcknowledgement.acknowledgeStableAudioTerms()
     hasAcknowledgedStableAudioTerms = true
-    Task { await configureGenerationRuntime() }
+    if isModelInstalled(.stableSmall) {
+      Task { await configureGenerationRuntime() }
+    } else {
+      installModel(.stableSmall)
+    }
   }
 
   func refreshGenerationRuntime() {
@@ -450,7 +459,8 @@ final class FlowtoneAppModel: ObservableObject {
   }
 
   func selectModel(_ modelID: MusicModelID) {
-    modelPreference = ModelPreference(modelID: modelID)
+    guard modelID == .stableSmall else { return }
+    modelPreference = .automatic
   }
 
   func useAutomaticModelSelection() {
@@ -464,10 +474,16 @@ final class FlowtoneAppModel: ObservableObject {
       return
     }
     guard !isInstallingStableAudio else { return }
+    guard modelID == .stableSmall else {
+      stableAudioInstallationErrorText =
+        "В этой версии Flowtone доступна только минимальная Stable Audio 3 Small."
+      return
+    }
     stableAudioInstallationErrorText = nil
     isInstallingStableAudio = true
     installingModelID = modelID
     stableAudioInstallationProgress = nil
+    startModelInstallationClock()
 
     modelInstallationTask = Task { [weak self] in
       guard let self else { return }
@@ -479,23 +495,22 @@ final class FlowtoneAppModel: ObservableObject {
             self?.modelRuntimeStatusText = progress.title
           }
         }
-        if let tier = modelID.stableAudioTier {
-          try await stableAudioInstaller.install(tier: tier, progress: updateProgress)
-        } else {
-          try await aceStepInstaller.install(modelID: modelID, progress: updateProgress)
-        }
-        installedModelIDs = modelCatalog.installedModelIDs
-        modelPreference = ModelPreference(modelID: modelID)
+        try await stableAudioInstaller.install(tier: .light, progress: updateProgress)
+        installedModelIDs = Set(modelCatalog.installedModelIDs.filter { $0 == .stableSmall })
+        modelPreference = .automatic
         await configureGenerationRuntime()
+        stopModelInstallationClock()
         isInstallingStableAudio = false
         installingModelID = nil
         statusText = "\(modelName(for: modelID)) установлена и подключена"
       } catch is CancellationError {
+        stopModelInstallationClock()
         isInstallingStableAudio = false
         installingModelID = nil
         stableAudioInstallationProgress = nil
         modelRuntimeStatusText = "Установка отменена · уже загруженные веса можно продолжить позже"
       } catch {
+        stopModelInstallationClock()
         isInstallingStableAudio = false
         installingModelID = nil
         stableAudioInstallationErrorText = error.localizedDescription
@@ -510,6 +525,7 @@ final class FlowtoneAppModel: ObservableObject {
   }
 
   func removeModel(_ modelID: MusicModelID) {
+    guard modelID == .stableSmall else { return }
     guard !isInstallingStableAudio, !isRemovingStableAudio else { return }
     isRemovingStableAudio = true
     stableAudioInstallationErrorText = nil
@@ -519,14 +535,8 @@ final class FlowtoneAppModel: ObservableObject {
         await scheduler.cancelActiveGeneration(reason: "Модель удаляется с устройства.")
       }
       do {
-        if let tier = modelID.stableAudioTier {
-          try stableAudioInstaller.remove(tier: tier)
-        } else {
-          try aceStepInstaller.remove(modelID: modelID)
-        }
-        if modelPreference.requestedModelID == modelID {
-          modelPreference = .automatic
-        }
+        try stableAudioInstaller.remove(tier: .light)
+        modelPreference = .automatic
         await configureGenerationRuntime()
         statusText = "\(modelName(for: modelID)) удалена · локальные треки сохранены"
       } catch {
@@ -539,6 +549,13 @@ final class FlowtoneAppModel: ObservableObject {
 
   func skipTrack() {
     nextTrack()
+  }
+
+  func cancelGeneration() async {
+    guard isGenerating else { return }
+    statusText = "Останавливаю локальную генерацию…"
+    await scheduler.cancelActiveGeneration(reason: "Генерация остановлена пользователем.")
+    statusText = "Генерация остановлена · сохранённые треки не затронуты"
   }
 
   func previousTrack() {
@@ -755,8 +772,12 @@ final class FlowtoneAppModel: ObservableObject {
       return
     }
     isGenerating = true
+    startGenerationClock()
     statusText = "Создаю новую локальную запись…"
-    defer { isGenerating = false }
+    defer {
+      stopGenerationClock()
+      isGenerating = false
+    }
 
     do {
       let seed = UInt64.random(in: 1...UInt64.max)
@@ -1129,7 +1150,7 @@ final class FlowtoneAppModel: ObservableObject {
   }
 
   private func configureGenerationRuntime() async {
-    installedModelIDs = modelCatalog.installedModelIDs
+    installedModelIDs = Set(modelCatalog.installedModelIDs.filter { $0 == .stableSmall })
     let requestedID = resolvedInstalledModelID()
     isUsingDevelopmentAudio = false
     activeModelID = nil
@@ -1158,11 +1179,7 @@ final class FlowtoneAppModel: ObservableObject {
       guard resolvedInstalledModelID() == requestedID else { return }
       activeModelID = requestedID
       generationRuntimeReady = true
-      let fallback = requestedID != self.requestedModelID
-      modelRuntimeStatusText =
-        fallback
-        ? "\(modelName(for: requestedID)) подключена вместо пока не установленной выбранной модели"
-        : "\(modelName(for: requestedID)) готова · генерация на этом Mac"
+      modelRuntimeStatusText = "\(modelName(for: requestedID)) готова · генерация на этом Mac"
     case .unavailable(let reason):
       await configureUnavailableStableAudioRuntime(reason: reason)
     case .unsupported(let reason):
@@ -1184,10 +1201,43 @@ final class FlowtoneAppModel: ObservableObject {
   }
 
   private func resolvedInstalledModelID() -> MusicModelID? {
-    let preferred = requestedModelID
-    if installedModelIDs.contains(preferred) { return preferred }
-    if installedModelIDs.contains(recommendedModelID) { return recommendedModelID }
-    return MusicModelID.allCases.first(where: installedModelIDs.contains)
+    installedModelIDs.contains(.stableSmall) ? .stableSmall : nil
+  }
+
+  private func startModelInstallationClock() {
+    modelInstallationClockTask?.cancel()
+    modelInstallationElapsedSeconds = 0
+    modelInstallationClockTask = Task { @MainActor [weak self] in
+      while !Task.isCancelled {
+        do { try await Task.sleep(for: .seconds(1)) } catch { break }
+        guard let self, self.isInstallingStableAudio else { break }
+        self.modelInstallationElapsedSeconds += 1
+      }
+    }
+  }
+
+  private func stopModelInstallationClock() {
+    modelInstallationClockTask?.cancel()
+    modelInstallationClockTask = nil
+  }
+
+  private func startGenerationClock() {
+    generationClockTask?.cancel()
+    generationElapsedSeconds = 0
+    generationClockTask = Task { @MainActor [weak self] in
+      while !Task.isCancelled {
+        do { try await Task.sleep(for: .seconds(1)) } catch { break }
+        guard let self, self.isGenerating else { break }
+        self.generationElapsedSeconds += 1
+        self.statusText =
+          "Генерация идёт · \(self.generationElapsedText) · трек появится после завершения"
+      }
+    }
+  }
+
+  private func stopGenerationClock() {
+    generationClockTask?.cancel()
+    generationClockTask = nil
   }
 
   private func handleMemoryPressure(_ pressure: MemoryPressure) async {

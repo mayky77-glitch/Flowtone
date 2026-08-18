@@ -6,26 +6,26 @@ const os = require('node:os');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const { GENRES, composePrompt, createStationConfiguration, generateTitle, genreProfile, pickTempo, profileCount } = require('../src/core.cjs');
-const { MODEL_GROUPS, MODEL_PROFILES, StableAudioRuntime, recommendGroup, recommendModel, stableRuntimeHealth } = require('../src/runtime.cjs');
+const { DEFAULT_MODEL_ID, MODEL_GROUPS, MODEL_PROFILES, StableAudioRuntime, recommendGroup, recommendModel, stableRuntimeHealth } = require('../src/runtime.cjs');
 const { TrackLibrary } = require('../src/library.cjs');
 const { shouldReplaceInstalledFlowtone, terminateInstalledFlowtone } = require('../src/instance-guard.cjs');
 const { settleControlChange, userMessage } = require('../src/renderer/ui-utils.js');
 
-test('autoselection scales model with memory and CPU', () => {
+test('dormant future catalog keeps hardware routing data for the postponed idea', () => {
   assert.equal(recommendModel({ memoryGiB: 8, logicalCores: 4 }), 'small-efficient');
   assert.equal(recommendModel({ memoryGiB: 16, logicalCores: 8 }), 'small-quality');
   assert.equal(recommendModel({ memoryGiB: 24, logicalCores: 12 }), 'medium-balanced');
   assert.equal(recommendModel({ memoryGiB: 64, logicalCores: 24 }), 'medium-max');
 });
 
-test('autoselection upgrades to ACE-Step only for suitable NVIDIA VRAM', () => {
+test('dormant future catalog keeps GPU routing data without exposing it to the product', () => {
   assert.equal(recommendModel({ memoryGiB: 16, logicalCores: 8, gpu: 'NVIDIA RTX 3060', gpuMemoryGiB: 6 }), 'ace-lite');
   assert.equal(recommendModel({ memoryGiB: 24, logicalCores: 12, gpu: 'NVIDIA RTX 4070', gpuMemoryGiB: 12 }), 'ace-pro');
   assert.equal(recommendModel({ memoryGiB: 64, logicalCores: 24, gpu: 'NVIDIA RTX 5090', gpuMemoryGiB: 32 }), 'ace-max');
   assert.equal(recommendModel({ memoryGiB: 64, logicalCores: 24, gpu: 'AMD Radeon', gpuMemoryGiB: 24 }), 'medium-max');
 });
 
-test('every Windows power group has a baseline and at least two alternatives', () => {
+test('postponed model groups remain internally well-formed for possible reactivation', () => {
   assert.equal(recommendGroup({ memoryGiB: 8 }), 'compact');
   assert.equal(recommendGroup({ memoryGiB: 16 }), 'balanced');
   assert.equal(recommendGroup({ memoryGiB: 24 }), 'powerful');
@@ -37,6 +37,17 @@ test('every Windows power group has a baseline and at least two alternatives', (
       assert.ok(model.better && model.worse);
     }
   }
+});
+
+test('public Windows runtime exposes and routes only the default minimum model', async () => {
+  const runtime = new StableAudioRuntime(path.join(os.tmpdir(), 'flowtone-single-model-contract'));
+  runtime.hardware = { memoryGiB: 64, logicalCores: 32, gpu: 'NVIDIA RTX 5090', gpuMemoryGiB: 32 };
+  const status = await runtime.status('ace-max');
+  assert.equal(DEFAULT_MODEL_ID, 'small-efficient');
+  assert.deepEqual(status.models.map((model) => model.id), [DEFAULT_MODEL_ID]);
+  assert.equal(status.recommendedModel, DEFAULT_MODEL_ID);
+  assert.equal(status.connectedModel, null);
+  await assert.rejects(runtime.installModel('ace-max'), /только минимальная Stable Audio 3 Small/);
 });
 
 test('old Stable Audio runtime without tokenizer is rejected even under a Cyrillic Windows profile', async () => {

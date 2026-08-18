@@ -1,4 +1,4 @@
-FLOWTONE 1.2.0 — УСТАНОВКА НА MAC
+FLOWTONE 1.2.1 — УСТАНОВКА НА MAC
 
 Требования:
 • Mac с Apple Silicon (M1 или новее)

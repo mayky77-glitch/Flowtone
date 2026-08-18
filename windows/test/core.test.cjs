@@ -8,6 +8,8 @@ const path = require('node:path');
 const { GENRES, composePrompt, createStationConfiguration, generateTitle, genreProfile, pickTempo, profileCount } = require('../src/core.cjs');
 const { MODEL_GROUPS, MODEL_PROFILES, StableAudioRuntime, recommendGroup, recommendModel, stableRuntimeHealth } = require('../src/runtime.cjs');
 const { TrackLibrary } = require('../src/library.cjs');
+const { shouldReplaceInstalledFlowtone, terminateInstalledFlowtone } = require('../src/instance-guard.cjs');
+const { userMessage } = require('../src/renderer/ui-utils.js');
 
 test('autoselection scales model with memory and CPU', () => {
   assert.equal(recommendModel({ memoryGiB: 8, logicalCores: 4 }), 'small-efficient');
@@ -96,6 +98,28 @@ test('initialization migrates the legacy tokenizer loader without a network down
   } finally {
     await fsp.rm(root, { recursive: true, force: true });
   }
+});
+
+test('Windows development launch replaces the stale installed copy before taking the shared lock', () => {
+  assert.equal(shouldReplaceInstalledFlowtone('win32', false, 'C:\\tools\\electron.exe'), true);
+  assert.equal(shouldReplaceInstalledFlowtone('win32', true, 'C:\\Program Files\\Flowtone\\Flowtone.exe'), false);
+  assert.equal(shouldReplaceInstalledFlowtone('darwin', false, '/Applications/Electron.app/Electron'), false);
+  let invocation = null;
+  const stopped = terminateInstalledFlowtone({
+    platform: 'win32', isPackaged: false, executablePath: 'C:\\tools\\electron.exe',
+    run(command, args) { invocation = { command, args }; return { status: 0 }; },
+  });
+  assert.equal(stopped, true);
+  assert.deepEqual(invocation, { command: 'taskkill.exe', args: ['/IM', 'Flowtone.exe', '/T', '/F'] });
+});
+
+test('technical runtime traces become short actionable Russian messages', () => {
+  const tokenizer = userMessage(new Error('Traceback (most recent call last): File "C:\\Users\\Учкук\\Runtime\\sa3.py", line 55 RuntimeError: NOT_FOUND: models\\tokenizer.model'));
+  assert.equal(tokenizer, 'Модель Stable Audio установлена не полностью. Откройте «Настроить модель» и нажмите «Восстановить».');
+  assert.doesNotMatch(tokenizer, /Traceback|C:\\Users/);
+  const generic = userMessage(`Traceback (most recent call last): ${'internal details '.repeat(100)}`);
+  assert.equal(generic, 'Локальная модель завершила работу с ошибкой. Повторите попытку; если ошибка вернётся, восстановите модель.');
+  assert.ok(userMessage('x'.repeat(500)).length <= 220);
 });
 
 test('station configuration stays deterministic for explicit seed', () => {

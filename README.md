@@ -43,7 +43,8 @@ Flowtone — бесплатное приложение для Windows и macOS �
 - четыре Stable Audio 3 TFLite-профиля и четыре ACE-Step-конфигурации Windows: подбор по RAM/CPU/VRAM, ручная установка, удаление и автоматическое подключение;
 - самовосстановление старого Windows runtime: обязательный `tokenizer.model` проверяется и докачивается по закреплённому SHA-256, а кириллические пути профиля не передаются нативному SentencePiece;
 - один фоновый generation process, ограниченные потоки, контроль свободной памяти и полная остановка анимации в скрытом окне Windows;
-- защита от двойного запуска: актуальная Flowtone остаётся единственным экземпляром;
+- защита от двойного запуска: Windows development-сборка закрывает старую установленную копию до общего instance lock, а актуальная Flowtone остаётся единственным экземпляром;
+- технические Python traceback не попадают в макет: пользователь видит короткое русское действие, а статус и уведомление ограничены по высоте;
 - выбранная владельцем тёплая retro-иконка с пластинкой;
 - MIT-лицензия исходного кода, ad-hoc signed macOS/неподписанный Windows packagers, CI обеих платформ и GitHub Release по тегу.
 
@@ -108,6 +109,6 @@ npm start
 
 ## Сборки и публикация
 
-Каждый `push` проверяет обе платформы и сохраняет временные Actions artifacts на 14 дней. Тег вида `v1.2.0` дополнительно создаёт GitHub Release с постоянными файлами `Flowtone-Setup-Windows-x64.exe`, `Flowtone-macOS-arm64.zip` и SHA-256 для каждого файла. Подробная Windows-инструкция находится в [docs/INSTALL-WINDOWS-RU.md](docs/INSTALL-WINDOWS-RU.md).
+Каждый `push` проверяет обе платформы и сохраняет временные Actions artifacts на 14 дней. Тег вида `v1.2.1` дополнительно создаёт GitHub Release с постоянными файлами `Flowtone-Setup-Windows-x64.exe`, `Flowtone-macOS-arm64.zip` и SHA-256 для каждого файла. Подробная Windows-инструкция находится в [docs/INSTALL-WINDOWS-RU.md](docs/INSTALL-WINDOWS-RU.md).
 
 macOS bundle подписан ad-hoc, но не Developer ID и не notarized; Windows installer не подписан. Система может потребовать явное подтверждение при первом запуске. Не скачивайте Flowtone из непроверенных источников.

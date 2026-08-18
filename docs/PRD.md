@@ -337,6 +337,7 @@ Stable Audio code и model weights имеют разные условия. Дл�
 - [ ] Проверяет зафиксированные runtime archives по SHA-256, не сохраняет token/credentials и автоматически подключает offline generation.
 - [ ] Незавершённая установка не выдаётся за готовую; повторная попытка использует уже загруженный model cache.
 - [ ] Windows проверяет bundled `tokenizer.model`, восстанавливает отсутствующий файл по закреплённому SHA-256 и поддерживает кириллический путь пользовательского профиля.
+- [ ] Runtime traceback не ломает интерфейс и не раскрывает локальный путь: статус показывает короткую русскую причину и действие.
 
 ### Story 2 — Настройка станции
 
@@ -565,6 +566,7 @@ Future candidates: влияние лайков на генерацию, поль
 - Последние жанры, энергия, настроение, темп, атмосфера и остальные параметры станции сохраняются при выходе.
 - Один generation process, memory guard, suspend cancellation, hidden-window rendering stop и NSIS x64 installer.
 - Миграция старого Windows runtime распознаёт отсутствие tokenizer, восстанавливает его без удаления треков и использует Unicode-safe загрузку SentencePiece.
+- Общий instance namespace и controlled replacement не оставляют одновременно старое установленное и актуальное command-line окно; длинные runtime errors имеют фиксированные UI-границы.
 - Release workflow публикует `.exe`, macOS ZIP и SHA-256 по тегу.
 
 ### Следующий этап — hardware beta

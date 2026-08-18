@@ -97,11 +97,13 @@ Windows-приложение находится в `windows/` и воспрои�
 
 GPU определяется и показывается пользователю. Без подходящей NVIDIA автовыбор остаётся на portable Stable Audio CPU/LiteRT; при NVIDIA с 6/12/24 ГБ VRAM он может повыситься до ACE-Step Lite/Pro/Max. Рекомендацию можно изменить вручную. Установка автоматически подключает выбранный профиль; удаление не затрагивает музыкальную коллекцию и переключает приложение на другую установленную модель, если она есть.
 
-macOS перед активацией нового экземпляра завершает другую запущенную Flowtone с bundle identifier `com.flowtone.app`; Windows использует Electron single-instance lock.
+macOS перед активацией нового экземпляра завершает другую запущенную Flowtone с bundle identifier `com.flowtone.app`. Windows development launch до смены test `userData` закрывает stale installed `Flowtone.exe`, затем все варианты используют lock из общего default user-data namespace. Поэтому старая установленная и актуальная command-line копии не образуют два независимых окна.
 
 Runtime и `uv` закреплены по версии и SHA-256. Managed Python 3.11, LiteRT, Hugging Face cache и веса находятся в пользовательской папке Flowtone. После установки generation process работает offline, запускается строго по одному и завершается после каждого трека. При нехватке памяти или уходе Windows в сон process tree отменяется.
 
 Миграция с Windows `v1.1.1` отдельно проверяет `models/tokenizer.model`, который upstream считает bundled и поэтому не включает в weight manifest. Если старый runtime содержит Python и скрипты, но tokenizer потерян, Flowtone докачивает только официальный файл из закреплённой source revision и проверяет его SHA-256. Загрузчик SentencePiece патчится на `LoadFromSerializedProto(model_path.read_bytes())`, поэтому нативная библиотека не открывает путь с кириллическим именем профиля. Неполная установка не подключается; в Model Manager появляется действие «Восстановить».
+
+Renderer дополнительно классифицирует runtime errors до показа: tokenizer/Traceback превращаются в короткое русское действие, произвольное сообщение ограничено 220 символами. Status занимает не более двух строк, toast — трёх, model error имеет ограниченную прокрутку; внутренние пути и stack trace не растягивают stage или modal.
 
 Видимая пластинка обновляется с целевой частотой 60 Гц, как на macOS. Цикл перерисовки полностью останавливается на паузе, при сворачивании и скрытии окна. Заголовок обновляется не чаще 15 Гц; аудио и фоновая генерация не зависят от UI animation loop.
 
@@ -220,4 +222,4 @@ open /tmp/flowtone-package/Flowtone.app
 
 Скрипт отказывается перезаписывать существующий bundle, включает `Assets/AppIcon.icns`, выполняет ad-hoc signing после добавления resources и не выполняет Developer ID signing/notarization.
 
-При каждом `push` CI проверяет macOS и Windows и сохраняет временные artifacts. Тег вида `v1.2.0` создаёт GitHub Release с постоянными файлами `Flowtone-macOS-arm64.zip`, `Flowtone-Setup-Windows-x64.exe` и отдельными SHA-256. Ни `.app`, ни `.exe`, ни ZIP в Git не коммитятся.
+При каждом `push` CI проверяет macOS и Windows и сохраняет временные artifacts. Тег вида `v1.2.1` создаёт GitHub Release с постоянными файлами `Flowtone-macOS-arm64.zip`, `Flowtone-Setup-Windows-x64.exe` и отдельными SHA-256. Ни `.app`, ни `.exe`, ни ZIP в Git не коммитятся.

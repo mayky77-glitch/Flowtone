@@ -1142,9 +1142,9 @@ function currentGenreLabel() {
   return labels.length > 1 ? `Микс · ${labels.slice(0, 2).join(' + ')}` : labels[0];
 }
 
-function setStatus(message) { elements.status.textContent = message; }
+function setStatus(message) { elements.status.textContent = userMessage(message); }
 function showToast(message) {
-  elements.toast.textContent = message; elements.toast.hidden = false;
+  elements.toast.textContent = userMessage(message); elements.toast.hidden = false;
   clearTimeout(showToast.timer); showToast.timer = setTimeout(() => { elements.toast.hidden = true; }, 5000);
 }
 
@@ -1162,6 +1162,6 @@ function formatBytes(bytes) {
 }
 function plural(value, one, few, many) { const n = Math.abs(value) % 100; const n1 = n % 10; if (n > 10 && n < 20) return many; if (n1 > 1 && n1 < 5) return few; if (n1 === 1) return one; return many; }
 function clamp(value, lower, upper) { return Math.min(Math.max(Number(value) || 0, lower), upper); }
-function userMessage(error) { return String(error?.message || error || 'Неизвестная ошибка').replace(/^Error invoking remote method '[^']+':\s*/, '').replace(/^Error:\s*/, ''); }
+function userMessage(error) { return window.FlowtoneUI.userMessage(error); }
 
 bootstrap();

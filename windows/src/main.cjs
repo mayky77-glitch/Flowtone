@@ -11,19 +11,23 @@ const { pathToFileURL } = require('node:url');
 const { TrackLibrary } = require('./library.cjs');
 const { GENRES, GENRE_LABELS, composePrompt, createStationConfiguration } = require('./core.cjs');
 const { MODEL_PROFILES, StableAudioRuntime, basicHardwareProfile } = require('./runtime.cjs');
+const { terminateInstalledFlowtone } = require('./instance-guard.cjs');
 
 app.setName('Flowtone');
-if (!app.isPackaged && process.env.FLOWTONE_USER_DATA) {
-  const override = path.resolve(process.env.FLOWTONE_USER_DATA);
-  if (override !== path.parse(override).root && override !== os.homedir()) app.setPath('userData', override);
+if (process.platform === 'win32') {
+  app.setAppUserModelId('ru.flowtone.app');
+  terminateInstalledFlowtone({ isPackaged: app.isPackaged });
 }
-if (process.platform === 'win32') app.setAppUserModelId('ru.flowtone.app');
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'flowtone-audio', privileges: { secure: true, standard: true, stream: true, supportFetchAPI: true } }]);
 
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
+if (!app.isPackaged && process.env.FLOWTONE_USER_DATA) {
+  const override = path.resolve(process.env.FLOWTONE_USER_DATA);
+  if (override !== path.parse(override).root && override !== os.homedir()) app.setPath('userData', override);
+}
 
 let mainWindow = null;
 let library = null;

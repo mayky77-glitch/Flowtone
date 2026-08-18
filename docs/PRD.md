@@ -116,7 +116,7 @@ Flowtone — бесплатное open-source приложение для вла
 
 - Бесплатное open-source приложение.
 - Исходный код Flowtone распространяется под MIT License.
-- Публичная сборка: unsigned Windows x64 `.exe` и Apple Silicon ZIP с SHA-256 в GitHub Release; каждый обычный push также хранит временные Actions artifacts 14 дней.
+- Публичная сборка: unsigned Windows x64 `.exe` и ad-hoc signed Apple Silicon ZIP с SHA-256 в GitHub Release; каждый обычный push также хранит временные Actions artifacts 14 дней.
 - Веса моделей не входят автоматически в MIT-лицензию Flowtone и регулируются отдельными upstream terms.
 - Unsigned-приложение может показать предупреждение SmartScreen или Gatekeeper; пользователь должен самостоятельно подтвердить запуск.
 
@@ -195,7 +195,7 @@ flowchart TD
 | Light inference | Stable Audio 3 Small через Core ML или MLX adapter | Компактный instrumental engine с официальным Mac-путём |
 | Windows inference | Stable Audio 3 TFLite/LiteRT | Официальный portable CPU path с Small/Medium precision profiles |
 | Heavy inference | ACE-Step 1.5 через изолированный MLX/helper process | Более тяжёлый quality tier без блокировки UI процесса |
-| Packaging | Swift app ZIP + electron-builder NSIS x64 | Два unsigned файла в tag-driven GitHub Release; signing/notarization отдельно |
+| Packaging | Swift app ZIP + electron-builder NSIS x64 | ad-hoc signed macOS + unsigned Windows в tag-driven GitHub Release; Developer ID/notarization отдельно |
 | Tests | Swift Testing, smoke/integration harness, короткие runtime checks | Проверка scheduler, storage и непрерывности; длительное ручное тестирование выполняет владелец |
 
 Metadata contract реализован как `library-v1.json`; переход на базу данных не нужен, пока размер индекса не подтвердит обратное.
@@ -485,7 +485,7 @@ Future candidates: влияние лайков на генерацию, поль
 
 ### Dependencies
 
-- GitHub Actions для публикации unsigned zip artifact при push/tag (retention 14 days).
+- GitHub Actions для публикации ad-hoc signed zip artifact при push/tag (retention 14 days).
 - Доступный и юридически корректный способ загрузки model weights.
 - Stable Audio 3 Small Core ML/MLX runtime.
 - ACE-Step 1.5 runtime для необязательного quality tier.

@@ -59,9 +59,9 @@ cat >"$contents_dir/Info.plist" <<'PLIST'
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>1.1.0</string>
+  <string>1.1.1</string>
   <key>CFBundleVersion</key>
-  <string>3</string>
+  <string>4</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>NSHighResolutionCapable</key>
@@ -84,4 +84,13 @@ if [[ ! -f "$resources_dir/AppIcon.icns" ]]; then
   exit 1
 fi
 
-echo "Created unsigned app bundle: $app_bundle"
+codesign --force --deep --sign - --timestamp=none "$app_bundle"
+codesign --verify --deep --strict --verbose=2 "$app_bundle"
+
+signature_details="$(codesign -d --verbose=4 "$app_bundle" 2>&1)"
+if [[ "$signature_details" != *"Identifier=com.flowtone.app"* ]]; then
+  echo "Bundle signature does not bind the expected identifier: $app_bundle" >&2
+  exit 1
+fi
+
+echo "Created ad-hoc signed app bundle: $app_bundle"

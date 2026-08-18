@@ -196,7 +196,7 @@ sa3 --prompt <prompt> --negative-prompt <negative> \
 - Веса не входят в Git/сборку. На тестовом M4/16 ГБ official Small-Music MLX runtime установлен вне репозитория; offline 30-second benchmark прошёл за 7.68 с process wall / 4.81 с model wall с stage peak 1.69 ГБ.
 - Есть automatic verified installer для public optimized Small-Music MLX bundle; локальная UI-отметка не принимает external terms. Model weights не bundled, token не требуется и не хранится.
 - ACE-Step quality adapter ещё не реализован.
-- Скрипт создаёт рабочий, но неподписанный `.app`. Signing/notarization намеренно вне scope repository Actions artifact и требуют отдельного решения владельца и credentials.
+- Скрипт создаёт `.app`, затем целиком ad-hoc подписывает готовый bundle и запускает strict deep verification. Developer ID signing/notarization остаются вне scope и требуют credentials.
 - Системная memory-pressure защита подключена через `DispatchSource`; её пороги остаются системными.
 - `leaks` smoke на работающем debug-приложении показал стабильные 24 272 байта после повторного замера через 10 секунд; app-owned Flowtone frames в отчёте не обнаружены, оставшиеся roots относятся к SwiftUI/AVFoundation listener bindings.
 - Экранная запись UI подтверждает 60 fps stream для вращения винила; при скрытом окне timeline paused.
@@ -205,7 +205,7 @@ sa3 --prompt <prompt> --negative-prompt <negative> \
 
 1. Проверить лёгкий runtime на M1/M2 с 8–16 ГБ.
 2. Проверить ACE-Step adapter для quality tier.
-3. Signing/notarization остаются вне scope unsigned repository artifact; рассмотреть их только после отдельного решения владельца и получения credentials.
+3. Developer ID signing/notarization остаются вне scope ad-hoc repository artifact; рассмотреть их только после отдельного решения владельца и получения credentials.
 
 ## Unsigned app bundle
 
@@ -214,6 +214,6 @@ scripts/package-app.sh /tmp/flowtone-package
 open /tmp/flowtone-package/Flowtone.app
 ```
 
-Скрипт отказывается перезаписывать существующий bundle, включает `Assets/AppIcon.icns` и не выполняет signing или notarization.
+Скрипт отказывается перезаписывать существующий bundle, включает `Assets/AppIcon.icns`, выполняет ad-hoc signing после добавления resources и не выполняет Developer ID signing/notarization.
 
-При каждом `push` CI проверяет macOS и Windows и сохраняет временные artifacts. Тег вида `v1.1.0` создаёт GitHub Release с постоянными файлами `Flowtone-macOS-arm64.zip`, `Flowtone-Setup-Windows-x64.exe` и отдельными SHA-256. Ни `.app`, ни `.exe`, ни ZIP в Git не коммитятся.
+При каждом `push` CI проверяет macOS и Windows и сохраняет временные artifacts. Тег вида `v1.1.1` создаёт GitHub Release с постоянными файлами `Flowtone-macOS-arm64.zip`, `Flowtone-Setup-Windows-x64.exe` и отдельными SHA-256. Ни `.app`, ни `.exe`, ни ZIP в Git не коммитятся.

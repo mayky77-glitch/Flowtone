@@ -42,7 +42,7 @@ Flowtone — бесплатное приложение для Windows и macOS �
 - четыре Windows-профиля Stable Audio 3 TFLite: автоматический выбор по RAM/CPU, ручная установка и удаление, автоматическое подключение доступной модели;
 - один фоновый generation process, ограниченные потоки, контроль свободной памяти и полная остановка анимации в скрытом окне Windows;
 - выбранная владельцем тёплая retro-иконка с пластинкой;
-- MIT-лицензия исходного кода, unsigned `.app`/`.exe` packagers, CI обеих платформ и GitHub Release по тегу.
+- MIT-лицензия исходного кода, ad-hoc signed macOS/неподписанный Windows packagers, CI обеих платформ и GitHub Release по тегу.
 
 Настоящие model weights в репозиторий, `.app` и `.exe` не входят. После личного прочтения official model/license pages приложение само скачивает public optimized bundle и подключает его; token не нужен и не сохраняется. На Windows Flowtone рекомендует один из четырёх профилей по объёму RAM и числу CPU-потоков, но пользователь всегда может установить, удалить или выбрать другой. Каждый production generation process запускается отдельно, а после одного трека освобождает память модели.
 
@@ -65,7 +65,7 @@ Flowtone — бесплатное приложение для Windows и macOS �
 1. Реализовать и проверить ACE-Step adapter для quality tier.
 2. Профилировать лёгкий tier на M1/M2 с 8–16 ГБ; текущий benchmark относится только к M4/16 ГБ.
 3. Провести аппаратные тесты Windows-профилей на нескольких CPU/GPU и объёмах RAM.
-4. Signing/notarization не входят в scope текущих unsigned сборок и потребуют отдельного решения владельца.
+4. macOS bundle получает цельную ad-hoc подпись после упаковки. Developer ID signing/notarization не входят в scope и потребуют credentials.
 
 ## Быстрый старт для разработки macOS
 
@@ -105,6 +105,6 @@ npm start
 
 ## Сборки и публикация
 
-Каждый `push` проверяет обе платформы и сохраняет временные Actions artifacts на 14 дней. Тег вида `v1.1.0` дополнительно создаёт GitHub Release с постоянными файлами `Flowtone-Setup-Windows-x64.exe`, `Flowtone-macOS-arm64.zip` и SHA-256 для каждого файла. Подробная Windows-инструкция находится в [docs/INSTALL-WINDOWS-RU.md](docs/INSTALL-WINDOWS-RU.md).
+Каждый `push` проверяет обе платформы и сохраняет временные Actions artifacts на 14 дней. Тег вида `v1.1.1` дополнительно создаёт GitHub Release с постоянными файлами `Flowtone-Setup-Windows-x64.exe`, `Flowtone-macOS-arm64.zip` и SHA-256 для каждого файла. Подробная Windows-инструкция находится в [docs/INSTALL-WINDOWS-RU.md](docs/INSTALL-WINDOWS-RU.md).
 
-Сборки не подписаны и не notarized. Система может потребовать явного подтверждения пользователя при первом запуске. Не скачивайте Flowtone из непроверенных источников.
+macOS bundle подписан ad-hoc, но не Developer ID и не notarized; Windows installer не подписан. Система может потребовать явное подтверждение при первом запуске. Не скачивайте Flowtone из непроверенных источников.

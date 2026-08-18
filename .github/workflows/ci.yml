@@ -25,18 +25,18 @@ jobs:
         run: swift test
       - name: Build release executable
         run: swift build -c release --product Flowtone
-      - name: Package unsigned app
+      - name: Package ad-hoc signed app
         shell: bash
         run: |
           scripts/package-shareable-release.sh dist
-      - name: Upload unsigned macOS app artifact
+      - name: Upload ad-hoc signed macOS app artifact
         if: github.event_name == 'push'
         uses: actions/upload-artifact@v4
         with:
-          name: flowtone-unsigned-macos-app-${{ github.sha }}
+          name: flowtone-adhoc-macos-app-${{ github.sha }}
           path: |
-            dist/Flowtone-1.1.0-macos-arm64-unsigned.zip
-            dist/Flowtone-1.1.0-macos-arm64-unsigned.zip.sha256
+            dist/Flowtone-1.1.1-macos-arm64-adhoc.zip
+            dist/Flowtone-1.1.1-macos-arm64-adhoc.zip.sha256
           if-no-files-found: error
           retention-days: 14
 

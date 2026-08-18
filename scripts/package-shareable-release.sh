@@ -7,8 +7,8 @@ if [[ $# -gt 1 ]]; then
 fi
 
 output_dir="${1:-dist}"
-version="1.1.0"
-archive_name="Flowtone-${version}-macos-arm64-unsigned.zip"
+version="1.1.1"
+archive_name="Flowtone-${version}-macos-arm64-adhoc.zip"
 archive_path="$output_dir/$archive_name"
 checksum_path="$archive_path.sha256"
 
@@ -37,5 +37,11 @@ grep -Fxq "Flowtone-${version}/Flowtone.app/Contents/MacOS/Flowtone" \
 grep -Fxq "Flowtone-${version}/INSTALL-RU.txt" "$staging_root/archive-entries.txt"
 grep -Fxq "Flowtone-${version}/LICENSE.txt" "$staging_root/archive-entries.txt"
 
-echo "Created shareable unsigned release: $archive_path"
+verification_root="$staging_root/verification"
+mkdir -p "$verification_root"
+ditto -x -k "$archive_path" "$verification_root"
+codesign --verify --deep --strict --verbose=2 \
+  "$verification_root/Flowtone-${version}/Flowtone.app"
+
+echo "Created shareable ad-hoc signed release: $archive_path"
 cat "$checksum_path"

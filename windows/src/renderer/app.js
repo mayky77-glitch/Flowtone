@@ -1004,13 +1004,25 @@ function renderModelProgress() {
   $('#model-progress-title').textContent = progress.title;
   $('#model-progress-detail').textContent = progress.detail;
   const bar = $('#model-progress-bar');
+  const percent = $('#model-progress-percent');
   const isDownload = progress.phase === 'downloading-model' || progress.phase === 'downloading-runtime';
   const downloadTotal = Number(progress.downloadTotalBytes) || 0;
   if (isDownload && downloadTotal > 0) {
-    bar.value = Math.min(1, Math.max(0, Number(progress.downloadBytes) || 0) / downloadTotal);
-  } else if (isDownload || progress.phase === 'installing') {
+    const measured = window.FlowtoneUI.measuredProgress(progress.downloadBytes, downloadTotal);
+    bar.value = measured.ratio;
+    percent.value = `${measured.percent}%`;
+    percent.hidden = false;
+    bar.setAttribute('aria-valuetext', `${percent.value} · ${window.FlowtoneUI.formatDataSize(progress.downloadBytes)} из ${window.FlowtoneUI.formatDataSize(downloadTotal)}`);
+  } else if (progress.phase === 'completed') {
+    bar.value = 1;
+    percent.value = '100%';
+    percent.hidden = false;
+    bar.setAttribute('aria-valuetext', '100% · установка завершена');
+  } else {
     bar.removeAttribute('value');
-  } else bar.value = progress.fraction;
+    bar.removeAttribute('aria-valuetext');
+    percent.hidden = true;
+  }
   const activityRow = $('#model-progress-activity');
   activityRow.hidden = !isDownload;
   if (isDownload) {

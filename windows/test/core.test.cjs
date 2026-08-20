@@ -5,11 +5,16 @@ const assert = require('node:assert/strict');
 const os = require('node:os');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
+const crypto = require('node:crypto');
+const http = require('node:http');
 const { GENRES, composePrompt, createStationConfiguration, generateTitle, genreProfile, pickTempo, profileCount } = require('../src/core.cjs');
-const { DEFAULT_MODEL_ID, MODEL_GROUPS, MODEL_PROFILES, StableAudioRuntime, downloadSnapshot, recommendGroup, recommendModel, stableRuntimeHealth } = require('../src/runtime.cjs');
+const { DEFAULT_MODEL_ID, MODEL_GROUPS, MODEL_PROFILES, StableAudioRuntime, recommendGroup, recommendModel, stableRuntimeHealth } = require('../src/runtime.cjs');
+const {
+  DEFAULT_MODEL_ASSETS, DEFAULT_MODEL_TOTAL_BYTES, MODEL_REVISION, legacyHuggingFacePaths, resumableVerifiedDownload,
+} = require('../src/model-download.cjs');
 const { TrackLibrary } = require('../src/library.cjs');
 const { shouldReplaceInstalledFlowtone, terminateInstalledFlowtone } = require('../src/instance-guard.cjs');
-const { downloadActivity, settleControlChange, userMessage } = require('../src/renderer/ui-utils.js');
+const { downloadActivity, measuredProgress, settleControlChange, userMessage } = require('../src/renderer/ui-utils.js');
 
 test('dormant future catalog keeps hardware routing data for the postponed idea', () => {
   assert.equal(recommendModel({ memoryGiB: 8, logicalCores: 4 }), 'small-efficient');
@@ -50,35 +55,104 @@ test('public Windows runtime exposes and routes only the default minimum model',
   await assert.rejects(runtime.installModel('ace-max'), /только минимальная Stable Audio 3 Small/);
 });
 
-test('download snapshot measures real file changes under a Cyrillic profile path', async () => {
+test('default model manifest pins three exact files, sizes and hashes', () => {
+  assert.match(MODEL_REVISION, /^[0-9a-f]{40}$/);
+  assert.equal(DEFAULT_MODEL_ASSETS.length, 3);
+  assert.equal(DEFAULT_MODEL_TOTAL_BYTES, 1086612752);
+  assert.deepEqual(DEFAULT_MODEL_ASSETS.map((asset) => asset.bytes), [563818608, 467069712, 55724432]);
+  for (const asset of DEFAULT_MODEL_ASSETS) assert.match(asset.sha256, /^[0-9a-f]{64}$/);
+  const legacy = legacyHuggingFacePaths('C:\\Users\\Учкук\\Flowtone\\Models', DEFAULT_MODEL_ASSETS[0]);
+  assert.match(legacy.partial, /\.incomplete$/);
+});
+
+test('verified downloader resumes a partial file under a Cyrillic path with real byte callbacks', async () => {
   const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'Flowtone-Загрузка-'));
+  const payload = Buffer.alloc(96 * 1024);
+  for (let index = 0; index < payload.length; index += 1) payload[index] = index % 251;
+  const expectedSHA256 = crypto.createHash('sha256').update(payload).digest('hex');
+  let requestedRange = null;
+  const server = http.createServer((request, response) => {
+    requestedRange = request.headers.range || null;
+    const start = requestedRange ? Number(requestedRange.match(/^bytes=(\d+)-$/)?.[1]) : 0;
+    response.writeHead(start > 0 ? 206 : 200, {
+      'Content-Type': 'application/octet-stream',
+      'Content-Length': payload.length - start,
+      ...(start > 0 ? { 'Content-Range': `bytes ${start}-${payload.length - 1}/${payload.length}` } : {}),
+    });
+    response.end(payload.subarray(start));
+  });
   try {
-    await writeRuntimeFile(path.join(root, 'cache', 'part.bin'), Buffer.alloc(1536));
-    await writeRuntimeFile(path.join(root, 'cache', 'nested', 'weights.bin'), Buffer.alloc(2048));
-    const first = await downloadSnapshot([path.join(root, 'cache')]);
-    assert.equal(first.bytes, 3584);
-    assert.equal(first.fileCount, 2);
-    await fsp.appendFile(path.join(root, 'cache', 'part.bin'), Buffer.alloc(512));
-    const second = await downloadSnapshot([path.join(root, 'cache')]);
-    assert.equal(second.bytes, 4096);
-    assert.ok(second.latestMtimeMs >= first.latestMtimeMs);
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const destination = path.join(root, 'готовая модель', 'weights.bin');
+    const partialPath = path.join(root, 'частичная загрузка', 'weights.partial');
+    const resumedFrom = 17 * 1024;
+    await writeRuntimeFile(partialPath, payload.subarray(0, resumedFrom));
+    const samples = [];
+    const address = server.address();
+    const result = await resumableVerifiedDownload({
+      url: `http://127.0.0.1:${address.port}/weights.bin`, destination, partialPath,
+      expectedBytes: payload.length, expectedSHA256, onProgress: (sample) => samples.push(sample),
+    });
+    assert.equal(requestedRange, `bytes=${resumedFrom}-`);
+    assert.equal(result.resumedFrom, resumedFrom);
+    assert.deepEqual(await fsp.readFile(destination), payload);
+    assert.equal(samples[0].fileBytes, resumedFrom);
+    assert.equal(samples.at(-1).fileBytes, payload.length);
+    assert.equal(samples.at(-1).completed, true);
   } finally {
+    await new Promise((resolve) => server.close(resolve));
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('verified downloader deletes a completed corrupt partial instead of reporting success', async () => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'Flowtone-Corrupt-'));
+  const payload = Buffer.alloc(4096, 7);
+  const expectedSHA256 = crypto.createHash('sha256').update(Buffer.alloc(4096, 8)).digest('hex');
+  const server = http.createServer((_request, response) => {
+    response.writeHead(200, { 'Content-Length': payload.length }); response.end(payload);
+  });
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    const destination = path.join(root, 'model.bin');
+    const partialPath = `${destination}.partial`;
+    await assert.rejects(resumableVerifiedDownload({
+      url: `http://127.0.0.1:${address.port}/corrupt.bin`, destination, partialPath,
+      expectedBytes: payload.length, expectedSHA256,
+    }), /Контрольная сумма/);
+    await assert.rejects(fsp.stat(destination));
+    await assert.rejects(fsp.stat(partialPath));
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
     await fsp.rm(root, { recursive: true, force: true });
   }
 });
 
 test('download status distinguishes active transfer, network wait and a probable stall', () => {
   const now = Date.parse('2026-08-20T12:00:00Z');
-  const base = { downloadBytes: 64 * 1024 ** 2, downloadCompletedFiles: 1, downloadExpectedFiles: 3 };
+  const base = {
+    downloadBytes: 64 * 1024 ** 2, downloadTotalBytes: 128 * 1024 ** 2,
+    downloadCompletedFiles: 1, downloadExpectedFiles: 3,
+  };
   const active = downloadActivity({ ...base, downloadBytesPerSecond: 2 * 1024 ** 2, downloadLastActivityAt: now - 1000 }, now);
   assert.equal(active.state, 'active');
   assert.match(active.text, /2\.0 МБ\/с/);
+  assert.match(active.text, /50% загрузки/);
   const waiting = downloadActivity({ ...base, downloadLastActivityAt: now - 25000 }, now);
   assert.equal(waiting.label, 'ОЖИДАНИЕ СЕТИ');
   assert.match(waiting.text, /0:25/);
   const stalled = downloadActivity({ ...base, downloadLastActivityAt: now - 65000 }, now);
   assert.equal(stalled.state, 'stalled');
   assert.match(stalled.text, /отменить и повторить/);
+});
+
+test('measured progress maps exact bytes to clamped 0, 50 and 100 percent', () => {
+  assert.deepEqual(measuredProgress(0, 1000), { ratio: 0, percent: 0 });
+  assert.deepEqual(measuredProgress(500, 1000), { ratio: 0.5, percent: 50 });
+  assert.deepEqual(measuredProgress(1000, 1000), { ratio: 1, percent: 100 });
+  assert.deepEqual(measuredProgress(1500, 1000), { ratio: 1, percent: 100 });
+  assert.equal(measuredProgress(500, 0), null);
 });
 
 test('old Stable Audio runtime without tokenizer is rejected even under a Cyrillic Windows profile', async () => {

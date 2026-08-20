@@ -1,6 +1,6 @@
 {
   "name": "flowtone-windows",
-  "version": "1.2.4",
+  "version": "1.2.5",
   "description": "Flowtone — бесконечная локальная музыка",
   "main": "src/main.cjs",
   "author": "mayky77-glitch <274605240+mayky77-glitch@users.noreply.github.com>",
@@ -13,7 +13,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test test/*.test.cjs",
-    "check": "node --check src/main.cjs && node --check src/preload.cjs && node --check src/core.cjs && node --check src/genre-profiles.cjs && node --check src/library.cjs && node --check src/runtime.cjs && node --check src/ace-runtime.cjs && node --check src/instance-guard.cjs && node --check src/renderer/ui-utils.js && node --check src/renderer/app.js",
+    "check": "node --check src/main.cjs && node --check src/preload.cjs && node --check src/core.cjs && node --check src/genre-profiles.cjs && node --check src/library.cjs && node --check src/model-download.cjs && node --check src/runtime.cjs && node --check src/ace-runtime.cjs && node --check src/instance-guard.cjs && node --check src/qa-smoke.cjs && node --check src/renderer/ui-utils.js && node --check src/renderer/app.js",
     "dist:win": "electron-builder --win nsis --x64 --publish never",
     "pack:win": "electron-builder --win dir --x64"
   },

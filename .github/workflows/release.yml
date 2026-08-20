@@ -21,7 +21,7 @@ jobs:
           swift test
           swift build -c release --product Flowtone
           scripts/package-shareable-release.sh dist
-          cp dist/Flowtone-1.2.4-macos-arm64-adhoc.zip dist/Flowtone-macOS-arm64.zip
+          cp dist/Flowtone-1.2.5-macos-arm64-adhoc.zip dist/Flowtone-macOS-arm64.zip
           (cd dist && shasum -a 256 Flowtone-macOS-arm64.zip > Flowtone-macOS-arm64.zip.sha256)
       - uses: actions/upload-artifact@v4
         with:
@@ -49,6 +49,31 @@ jobs:
           npm run check
           npm test
           npm run dist:win
+      - name: Native Windows Electron smoke
+        shell: pwsh
+        env:
+          CI: "true"
+          FLOWTONE_USER_DATA: ${{ runner.temp }}\Flowtone-Учкук-QA
+          FLOWTONE_QA_OUTPUT: ${{ github.workspace }}\windows\qa-artifacts\windows-smoke.json
+          FLOWTONE_QA_SCREENSHOT: ${{ github.workspace }}\windows\qa-artifacts\windows-smoke.png
+        run: |
+          $executable = (Resolve-Path "dist\win-unpacked\Flowtone.exe").Path
+          $process = Start-Process -FilePath $executable -ArgumentList "--flowtone-ci-smoke" -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            if (Test-Path $env:FLOWTONE_QA_OUTPUT) { Get-Content $env:FLOWTONE_QA_OUTPUT }
+            throw "Native Windows Electron smoke failed with exit code $($process.ExitCode)"
+          }
+          $result = Get-Content $env:FLOWTONE_QA_OUTPUT -Raw | ConvertFrom-Json
+          if (-not $result.passed) { throw "Native Windows Electron smoke reported failure" }
+          Get-Content $env:FLOWTONE_QA_OUTPUT
+      - name: Upload Windows smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowtone-release-windows-smoke-${{ github.sha }}
+          path: windows/qa-artifacts
+          if-no-files-found: warn
+          retention-days: 14
       - name: Create checksum
         shell: pwsh
         run: |

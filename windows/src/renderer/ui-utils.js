@@ -45,6 +45,13 @@
     return `${value >= 100 ? value.toFixed(0) : value.toFixed(1)} ${units[index]}`;
   }
 
+  function measuredProgress(bytes, totalBytes) {
+    const total = Math.max(0, Number(totalBytes) || 0);
+    if (!total) return null;
+    const ratio = Math.min(1, Math.max(0, Number(bytes) || 0) / total);
+    return { ratio, percent: Math.floor(ratio * 100) };
+  }
+
   function downloadActivity(progress, now = Date.now()) {
     const bytes = Math.max(0, Number(progress?.downloadBytes) || 0);
     const speed = Math.max(0, Number(progress?.downloadBytesPerSecond) || 0);
@@ -58,7 +65,7 @@
     const expected = Math.max(0, Number(progress?.downloadExpectedFiles) || 0);
     const parts = [`На диске ${formatDataSize(bytes)}`];
     if (speed > 0) parts.push(`${formatDataSize(speed)}/с`);
-    if (total > 0) parts.push(`${Math.min(100, Math.floor(bytes / total * 100))}% файла`);
+    if (total > 0) parts.push(`${Math.min(100, Math.floor(bytes / total * 100))}% загрузки`);
     if (expected > 0) parts.push(`готово файлов ${completed} из ${expected}`);
 
     if (speed > 0 && idleSeconds < 8) {
@@ -88,5 +95,5 @@
     return `${Math.floor(safe / 60)}:${String(safe % 60).padStart(2, '0')}`;
   }
 
-  return { downloadActivity, formatDataSize, settleControlChange, userMessage };
+  return { downloadActivity, formatDataSize, measuredProgress, settleControlChange, userMessage };
 }));

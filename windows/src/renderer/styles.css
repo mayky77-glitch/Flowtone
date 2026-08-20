@@ -57,8 +57,8 @@ html[data-platform="win32"] .app-shell { inset: var(--titlebar-height) 0 0; }
 .segmented button.active { background: var(--signal); color: var(--selected-ink); box-shadow: 0 1px 7px rgba(232,145,61,.24); font-weight: 650; }
 .segmented.compact { width: 250px; }
 
-.switch-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 11px; color: var(--ink); font-size: 12px; cursor: pointer; }
-.switch-row input { position: absolute; opacity: 0; pointer-events: none; }
+.switch-row { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 11px; color: var(--ink); font-size: 12px; cursor: pointer; }
+.switch-row input { position: absolute; top: 50%; right: 17px; width: 1px; height: 1px; margin: 0; opacity: 0; transform: translate(50%, -50%); pointer-events: none; }
 .switch-row i { flex: 0 0 auto; position: relative; width: 34px; height: 20px; border-radius: 20px; background: #4b3a2c; border: 1px solid rgba(214,156,92,.2); transition: background .16s ease; }
 .switch-row i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--ink); transition: transform .16s ease; box-shadow: 0 1px 3px #0008; }
 .switch-row input:checked + i { background: var(--signal); }
@@ -226,7 +226,10 @@ html[data-platform="win32"] .modal { top: calc(50% + (var(--titlebar-height) / 2
 .model-progress-activity.waiting > span { color: var(--signal); }
 .model-progress-activity.stalled { border-color: rgba(214,94,66,.34); background: rgba(118,42,27,.12); }
 .model-progress-activity.stalled > span { color: #e7a17e; }
-.model-progress progress { width: 100%; height: 7px; margin: 10px 0; accent-color: var(--signal); }
+.model-progress-track { display: grid; grid-template-columns: minmax(0, 1fr) 36px; align-items: center; gap: 8px; margin: 10px 0; }
+.model-progress progress { width: 100%; height: 9px; margin: 0; accent-color: var(--signal); }
+.model-progress output { color: var(--signal); font: 700 9px/1 "Cascadia Mono", Consolas, monospace; text-align: right; }
+.model-progress output[hidden] { visibility: hidden; display: block !important; }
 .model-error { max-height: 96px; overflow: auto; padding: 9px; border-radius: 8px; background: rgba(163,62,42,.15); color: #f0ad8c; font-size: 10px; overflow-wrap: anywhere; }
 .runtime-path { color: var(--muted); font-size: 9px; }
 .runtime-path code { display: block; margin-top: 7px; overflow-wrap: anywhere; }

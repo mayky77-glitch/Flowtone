@@ -9,6 +9,15 @@ const { spawn } = require('node:child_process');
 const { Readable, Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { ACEStepRuntime } = require('./ace-runtime.cjs');
+const {
+  DEFAULT_MODEL_ASSETS,
+  DEFAULT_MODEL_TOTAL_BYTES,
+  fileSize,
+  legacyHuggingFacePaths,
+  modelAssetURL,
+  resumableVerifiedDownload,
+  verifiedFile,
+} = require('./model-download.cjs');
 
 const SOURCE_REVISION = 'a0b57f5483c4588f827f3552b7d5c6ca2a9687be';
 const SOURCE_SHA256 = '57c5f639e4e55ec2357cd193cc40ebf7749e4478dc01ef26ce2c541ed1ece380';
@@ -387,76 +396,104 @@ class StableAudioRuntime {
   }
 
   async #downloadModel(profile) {
-    const required = this.#requiredRelativePaths(profile);
-    await this.#downloadModelFiles(
-      required.filter((item) => item.includes('/t5gemma/')), '_shared', profile, 1, 2,
-    );
-    await this.#downloadModelFiles(
-      required.filter((item) => !item.includes('/t5gemma/')), profile.id, profile, 2, 2,
-    );
-    this.#progress('validating', 'Проверяю файлы модели', 'После проверки модель подключится автоматически.', 0.94);
-  }
-
-  async #downloadModelFiles(items, cacheID, profile, stageIndex, stageCount) {
-    const scripts = JSON.stringify(path.join(this.runtimeRoot, 'scripts'));
-    const pythonCode = [
-      'import sys',
-      `sys.path.insert(0,${scripts})`,
-      'from weights import ensure_local',
-      `items=[${items.map((item) => JSON.stringify(item)).join(',')}]`,
-      '[ensure_local(item) for item in items]',
-      'print("FLOWTONE_MODEL_READY")',
-    ].join(';');
-    const cacheRoots = ['_shared', profile.id]
-      .map((id) => path.join(this.modelsRoot, id, 'HuggingFace'));
-    const required = this.#requiredRelativePaths(profile);
-    let previous = await downloadSnapshot(cacheRoots);
-    let previousSampleAt = Date.now();
-    let lastActivityAt = previousSampleAt;
-    let speed = 0;
-    const emitActivity = async (heartbeat = {}) => {
-      const snapshot = await downloadSnapshot(cacheRoots);
-      if (heartbeat.isActive && !heartbeat.isActive()) return;
+    if (profile.id !== DEFAULT_MODEL_ID) throw new Error('Для этой модели нет закреплённого загрузочного набора.');
+    const assetBytes = new Map();
+    const completed = new Set();
+    for (const asset of DEFAULT_MODEL_ASSETS) {
+      const destination = path.join(this.runtimeRoot, ...asset.relativePath.split('/'));
+      const partialPath = this.#modelPartialPath(asset);
+      const destinationReady = await this.#adoptLegacyModelCache(asset, destination, partialPath);
+      if (destinationReady) completed.add(asset.id);
+      const partialBytes = destinationReady ? 0 : Math.min(await fileSize(partialPath), asset.bytes);
+      assetBytes.set(asset.id, destinationReady ? asset.bytes : partialBytes);
+    }
+    let lastActivityAt = Date.now();
+    const emitActivity = (asset, sample = {}) => {
+      if (Number.isFinite(sample.fileBytes)) assetBytes.set(asset.id, Math.min(sample.fileBytes, asset.bytes));
+      if ((sample.deltaBytes || 0) > 0) lastActivityAt = Date.now();
+      const downloadedBytes = [...assetBytes.values()].reduce((total, bytes) => total + bytes, 0);
       const now = Date.now();
-      const elapsedSeconds = Math.max((now - previousSampleAt) / 1000, 0.001);
-      const byteDelta = snapshot.bytes - previous.bytes;
-      const changed = byteDelta !== 0 || snapshot.fileCount !== previous.fileCount
-        || snapshot.latestMtimeMs !== previous.latestMtimeMs;
-      if (changed) {
-        lastActivityAt = now;
-        speed = byteDelta > 0 ? byteDelta / elapsedSeconds : 0;
-      } else if (now - lastActivityAt > 4000) {
-        speed = 0;
-      }
-      previous = snapshot;
-      previousSampleAt = now;
       this.#progress(
         'downloading-model',
-        `${stageIndex === 1 ? 'Скачиваю текстовый модуль' : 'Скачиваю музыкальную модель'} · этап ${stageIndex} из ${stageCount}`,
-        `Всего около ${profile.estimatedGiB.toLocaleString('ru-RU')} ГБ; уже полученные данные сохраняются при отмене.`,
-        0.48,
+        `${asset.stageTitle} · этап ${asset.stageIndex} из ${asset.stageCount}`,
+        'Полоса показывает точные байты трёх обязательных файлов; загрузку можно продолжить после отмены.',
+        downloadedBytes / DEFAULT_MODEL_TOTAL_BYTES,
         {
-          downloadBytes: snapshot.bytes,
-          downloadBytesPerSecond: speed,
-          downloadFileCount: snapshot.fileCount,
-          downloadCompletedFiles: required.filter((relative) =>
-            fileHasContent(path.join(this.runtimeRoot, ...relative.split('/')))).length,
-          downloadExpectedFiles: required.length,
+          downloadBytes: downloadedBytes,
+          downloadBytesPerSecond: sample.bytesPerSecond || 0,
+          downloadTotalBytes: DEFAULT_MODEL_TOTAL_BYTES,
+          downloadFileCount: [...assetBytes.values()].filter((bytes) => bytes > 0).length,
+          downloadCompletedFiles: completed.size,
+          downloadExpectedFiles: DEFAULT_MODEL_ASSETS.length,
           downloadLastActivityAt: lastActivityAt,
           downloadStalledForSeconds: Math.max(0, Math.floor((now - lastActivityAt) / 1000)),
-          downloadStageIndex: stageIndex,
-          downloadStageCount: stageCount,
+          downloadStageIndex: asset.stageIndex,
+          downloadStageCount: asset.stageCount,
         },
       );
     };
-    await emitActivity();
-    await this.#run(this.#pythonExecutable(), ['-c', pythonCode], {
-      cwd: this.runtimeRoot,
-      env: this.#runtimeEnvironment(cacheID, false),
-      stage: 'загрузка весов модели',
-      onHeartbeat: emitActivity,
-    });
-    await emitActivity();
+    for (const asset of DEFAULT_MODEL_ASSETS) {
+      if (this.cancelRequested) throw new Error('Операция отменена.');
+      if (completed.has(asset.id)) {
+        emitActivity(asset);
+        continue;
+      }
+      const destination = path.join(this.runtimeRoot, ...asset.relativePath.split('/'));
+      const controller = new AbortController();
+      this.activeDownloadAbort = controller;
+      emitActivity(asset);
+      try {
+        await resumableVerifiedDownload({
+          url: modelAssetURL(asset),
+          destination,
+          partialPath: this.#modelPartialPath(asset),
+          expectedBytes: asset.bytes,
+          expectedSHA256: asset.sha256,
+          signal: controller.signal,
+          onProgress: (sample) => emitActivity(asset, sample),
+        });
+        completed.add(asset.id);
+        assetBytes.set(asset.id, asset.bytes);
+        emitActivity(asset);
+      } catch (error) {
+        if (this.cancelRequested || error?.name === 'AbortError') throw new Error('Операция отменена.');
+        throw new Error(`Не удалось скачать файл модели «${asset.id}»: ${error.message}`);
+      } finally {
+        if (this.activeDownloadAbort === controller) this.activeDownloadAbort = null;
+      }
+    }
+    this.#progress('validating', 'Модель проверена', 'Размер и SHA-256 всех трёх файлов совпали; подключаю модель.', 1);
+  }
+
+  #modelPartialPath(asset) {
+    return path.join(this.modelsRoot, asset.cacheID, 'Downloads', `${asset.id}.partial`);
+  }
+
+  async #adoptLegacyModelCache(asset, destination, partialPath) {
+    const legacy = legacyHuggingFacePaths(this.modelsRoot, asset);
+    let destinationReady = await verifiedFile(destination, asset.bytes, asset.sha256);
+    if (!destinationReady) {
+      await fsp.rm(destination, { force: true });
+    }
+    if (!destinationReady && await verifiedFile(legacy.complete, asset.bytes, asset.sha256)) {
+      await fsp.mkdir(path.dirname(destination), { recursive: true });
+      try { await fsp.link(legacy.complete, destination); }
+      catch { await fsp.copyFile(legacy.complete, destination); }
+      destinationReady = true;
+    }
+    if (destinationReady) {
+      await fsp.rm(partialPath, { force: true });
+      return true;
+    }
+    const [currentPartialBytes, legacyPartialBytes] = await Promise.all([
+      fileSize(partialPath), fileSize(legacy.partial),
+    ]);
+    if (legacyPartialBytes <= currentPartialBytes || legacyPartialBytes >= asset.bytes) return false;
+    await fsp.mkdir(path.dirname(partialPath), { recursive: true });
+    await fsp.rm(partialPath, { force: true });
+    try { await fsp.rename(legacy.partial, partialPath); }
+    catch { await fsp.copyFile(legacy.partial, partialPath); }
+    return false;
   }
 
   #requiredRelativePaths(profile) {
@@ -724,31 +761,6 @@ async function freeDiskBytes(target) {
   }
 }
 
-async function downloadSnapshot(roots) {
-  const snapshot = { bytes: 0, fileCount: 0, latestMtimeMs: 0 };
-  const visited = new Set();
-  async function walk(candidate) {
-    const resolved = path.resolve(candidate);
-    if (visited.has(resolved)) return;
-    visited.add(resolved);
-    let entries;
-    try { entries = await fsp.readdir(resolved, { withFileTypes: true }); } catch { return; }
-    await Promise.all(entries.map(async (entry) => {
-      const entryPath = path.join(resolved, entry.name);
-      if (entry.isDirectory()) return walk(entryPath);
-      if (!entry.isFile()) return;
-      try {
-        const stat = await fsp.stat(entryPath);
-        snapshot.bytes += stat.size;
-        snapshot.fileCount += 1;
-        snapshot.latestMtimeMs = Math.max(snapshot.latestMtimeMs, stat.mtimeMs);
-      } catch {}
-    }));
-  }
-  await Promise.all([...new Set(roots.map((root) => path.resolve(root)))].map(walk));
-  return snapshot;
-}
-
 function sanitizeProcessError(value) {
   return String(value || '').replace(/hf_[A-Za-z0-9]{8,}/g, '[скрыто]')
     .replace(/\s+/g, ' ').trim().slice(-900);
@@ -785,5 +797,5 @@ function stableRuntimeHealth(runtimeRoot, pythonExecutable = path.join(runtimeRo
 
 module.exports = {
   DEFAULT_MODEL_ID, MODEL_GROUPS, MODEL_PROFILES, StableAudioRuntime, basicHardwareProfile, recommendGroup, recommendModel,
-  downloadSnapshot, stableRuntimeHealth,
+  stableRuntimeHealth,
 };

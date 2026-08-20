@@ -12,19 +12,30 @@ const { TrackLibrary } = require('./library.cjs');
 const { GENRES, GENRE_LABELS, composePrompt, createStationConfiguration } = require('./core.cjs');
 const { DEFAULT_MODEL_ID, StableAudioRuntime, basicHardwareProfile } = require('./runtime.cjs');
 const { terminateInstalledFlowtone } = require('./instance-guard.cjs');
+const { runCISmoke } = require('./qa-smoke.cjs');
+
+const CI_SMOKE = process.argv.includes('--flowtone-ci-smoke')
+  && process.env.CI === 'true'
+  && Boolean(process.env.FLOWTONE_QA_OUTPUT)
+  && Boolean(process.env.FLOWTONE_QA_SCREENSHOT)
+  && Boolean(process.env.FLOWTONE_USER_DATA);
 
 app.setName('Flowtone');
 if (process.platform === 'win32') {
   app.setAppUserModelId('ru.flowtone.app');
-  terminateInstalledFlowtone({ isPackaged: app.isPackaged });
+  if (!CI_SMOKE) terminateInstalledFlowtone({ isPackaged: app.isPackaged });
 }
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 protocol.registerSchemesAsPrivileged([{ scheme: 'flowtone-audio', privileges: { secure: true, standard: true, stream: true, supportFetchAPI: true } }]);
 
+if (CI_SMOKE) {
+  const override = path.resolve(process.env.FLOWTONE_USER_DATA);
+  if (override !== path.parse(override).root && override !== os.homedir()) app.setPath('userData', override);
+}
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
-if (!app.isPackaged && process.env.FLOWTONE_USER_DATA) {
+if (!CI_SMOKE && !app.isPackaged && process.env.FLOWTONE_USER_DATA) {
   const override = path.resolve(process.env.FLOWTONE_USER_DATA);
   if (override !== path.parse(override).root && override !== os.homedir()) app.setPath('userData', override);
 }
@@ -95,7 +106,7 @@ async function createWindow() {
   mainWindow.on('closed', () => { mainWindow = null; });
   mainWindow.webContents.once('did-finish-load', () => {
     updateThumbarButtons(false);
-    mainWindow.show();
+    if (!CI_SMOKE) mainWindow.show();
   });
   await mainWindow.loadFile(path.join(__dirname, 'renderer', 'index.html'));
 }
@@ -125,6 +136,15 @@ async function initialize() {
   registerIPC();
   registerPowerEvents();
   await createWindow();
+  if (CI_SMOKE) {
+    mainWindow.setContentSize(960, 640);
+    await runCISmoke(mainWindow, {
+      outputPath: path.resolve(process.env.FLOWTONE_QA_OUTPUT),
+      screenshotPath: path.resolve(process.env.FLOWTONE_QA_SCREENSHOT),
+      expectedPlatform: process.env.FLOWTONE_QA_EXPECTED_PLATFORM || 'win32',
+    });
+    app.exit(0);
+  }
 }
 
 function registerIPC() {
@@ -368,5 +388,10 @@ app.on('before-quit', () => { runtime?.cancel(); if (memoryTimer) clearInterval(
 app.whenReady().then(initialize).catch((error) => {
   const logPath = path.join(app.getPath('temp'), `flowtone-startup-${crypto.randomUUID()}.log`);
   fs.writeFileSync(logPath, String(error?.stack || error));
-  app.quit();
+  if (CI_SMOKE) {
+    const outputPath = path.resolve(process.env.FLOWTONE_QA_OUTPUT);
+    fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+    fs.writeFileSync(outputPath, `${JSON.stringify({ passed: false, error: String(error?.stack || error) }, null, 2)}\n`);
+    app.exit(1);
+  } else app.quit();
 });

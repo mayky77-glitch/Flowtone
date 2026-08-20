@@ -35,8 +35,8 @@ jobs:
         with:
           name: flowtone-adhoc-macos-app-${{ github.sha }}
           path: |
-            dist/Flowtone-1.2.4-macos-arm64-adhoc.zip
-            dist/Flowtone-1.2.4-macos-arm64-adhoc.zip.sha256
+            dist/Flowtone-1.2.5-macos-arm64-adhoc.zip
+            dist/Flowtone-1.2.5-macos-arm64-adhoc.zip.sha256
           if-no-files-found: error
           retention-days: 14
 
@@ -60,6 +60,31 @@ jobs:
         run: npm test
       - name: Build Windows installer
         run: npm run dist:win
+      - name: Native Windows Electron smoke
+        shell: pwsh
+        env:
+          CI: "true"
+          FLOWTONE_USER_DATA: ${{ runner.temp }}\Flowtone-Учкук-QA
+          FLOWTONE_QA_OUTPUT: ${{ github.workspace }}\windows\qa-artifacts\windows-smoke.json
+          FLOWTONE_QA_SCREENSHOT: ${{ github.workspace }}\windows\qa-artifacts\windows-smoke.png
+        run: |
+          $executable = (Resolve-Path "dist\win-unpacked\Flowtone.exe").Path
+          $process = Start-Process -FilePath $executable -ArgumentList "--flowtone-ci-smoke" -Wait -PassThru
+          if ($process.ExitCode -ne 0) {
+            if (Test-Path $env:FLOWTONE_QA_OUTPUT) { Get-Content $env:FLOWTONE_QA_OUTPUT }
+            throw "Native Windows Electron smoke failed with exit code $($process.ExitCode)"
+          }
+          $result = Get-Content $env:FLOWTONE_QA_OUTPUT -Raw | ConvertFrom-Json
+          if (-not $result.passed) { throw "Native Windows Electron smoke reported failure" }
+          Get-Content $env:FLOWTONE_QA_OUTPUT
+      - name: Upload Windows smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: flowtone-windows-smoke-${{ github.sha }}
+          path: windows/qa-artifacts
+          if-no-files-found: warn
+          retention-days: 14
       - name: Verify installer and checksum
         shell: pwsh
         run: |

@@ -138,6 +138,7 @@ async function initialize() {
   await createWindow();
   if (CI_SMOKE) {
     mainWindow.setContentSize(960, 640);
+    mainWindow.show();
     await runCISmoke(mainWindow, {
       outputPath: path.resolve(process.env.FLOWTONE_QA_OUTPUT),
       screenshotPath: path.resolve(process.env.FLOWTONE_QA_SCREENSHOT),

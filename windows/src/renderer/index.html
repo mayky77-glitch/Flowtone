@@ -192,7 +192,7 @@
       <section class="setup-card models-card">
         <h3>2. УСТАНОВКА</h3>
         <div id="model-list" class="model-list"></div>
-        <div id="model-progress" class="model-progress" hidden><div><strong id="model-progress-title"></strong><span id="model-progress-elapsed">0:00</span><small id="model-progress-detail"></small></div><progress id="model-progress-bar" max="1" value="0"></progress><button id="cancel-model-operation" class="small-button" type="button">Отменить</button></div>
+        <div id="model-progress" class="model-progress" hidden><div><strong id="model-progress-title"></strong><span id="model-progress-elapsed" class="model-progress-elapsed">0:00</span><small id="model-progress-detail"></small></div><div id="model-progress-activity" class="model-progress-activity waiting" role="status" aria-live="polite" hidden><span id="model-progress-activity-label">ПОДКЛЮЧЕНИЕ</span><small id="model-progress-activity-text"></small></div><progress id="model-progress-bar" max="1" value="0"></progress><button id="cancel-model-operation" class="small-button" type="button">Отменить</button></div>
         <p id="model-error" class="model-error" hidden></p>
       </section>
       <details class="runtime-path"><summary>Где хранятся модели</summary><code id="runtime-path"></code></details>

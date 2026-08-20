@@ -35,8 +35,8 @@ jobs:
         with:
           name: flowtone-adhoc-macos-app-${{ github.sha }}
           path: |
-            dist/Flowtone-1.2.3-macos-arm64-adhoc.zip
-            dist/Flowtone-1.2.3-macos-arm64-adhoc.zip.sha256
+            dist/Flowtone-1.2.4-macos-arm64-adhoc.zip
+            dist/Flowtone-1.2.4-macos-arm64-adhoc.zip.sha256
           if-no-files-found: error
           retention-days: 14
 

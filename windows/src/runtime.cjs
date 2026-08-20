@@ -6,7 +6,7 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
-const { Readable } = require('node:stream');
+const { Readable, Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { ACEStepRuntime } = require('./ace-runtime.cjs');
 
@@ -387,14 +387,17 @@ class StableAudioRuntime {
   }
 
   async #downloadModel(profile) {
-    this.#progress('downloading-model', `Скачиваю ${profile.title}`, `Около ${profile.estimatedGiB.toLocaleString('ru-RU')} ГБ; загрузку можно отменить и продолжить позже.`, 0.48);
     const required = this.#requiredRelativePaths(profile);
-    await this.#downloadModelFiles(required.filter((item) => item.includes('/t5gemma/')), '_shared');
-    await this.#downloadModelFiles(required.filter((item) => !item.includes('/t5gemma/')), profile.id);
+    await this.#downloadModelFiles(
+      required.filter((item) => item.includes('/t5gemma/')), '_shared', profile, 1, 2,
+    );
+    await this.#downloadModelFiles(
+      required.filter((item) => !item.includes('/t5gemma/')), profile.id, profile, 2, 2,
+    );
     this.#progress('validating', 'Проверяю файлы модели', 'После проверки модель подключится автоматически.', 0.94);
   }
 
-  async #downloadModelFiles(items, cacheID) {
+  async #downloadModelFiles(items, cacheID, profile, stageIndex, stageCount) {
     const scripts = JSON.stringify(path.join(this.runtimeRoot, 'scripts'));
     const pythonCode = [
       'import sys',
@@ -404,11 +407,56 @@ class StableAudioRuntime {
       '[ensure_local(item) for item in items]',
       'print("FLOWTONE_MODEL_READY")',
     ].join(';');
+    const cacheRoots = ['_shared', profile.id]
+      .map((id) => path.join(this.modelsRoot, id, 'HuggingFace'));
+    const required = this.#requiredRelativePaths(profile);
+    let previous = await downloadSnapshot(cacheRoots);
+    let previousSampleAt = Date.now();
+    let lastActivityAt = previousSampleAt;
+    let speed = 0;
+    const emitActivity = async (heartbeat = {}) => {
+      const snapshot = await downloadSnapshot(cacheRoots);
+      if (heartbeat.isActive && !heartbeat.isActive()) return;
+      const now = Date.now();
+      const elapsedSeconds = Math.max((now - previousSampleAt) / 1000, 0.001);
+      const byteDelta = snapshot.bytes - previous.bytes;
+      const changed = byteDelta !== 0 || snapshot.fileCount !== previous.fileCount
+        || snapshot.latestMtimeMs !== previous.latestMtimeMs;
+      if (changed) {
+        lastActivityAt = now;
+        speed = byteDelta > 0 ? byteDelta / elapsedSeconds : 0;
+      } else if (now - lastActivityAt > 4000) {
+        speed = 0;
+      }
+      previous = snapshot;
+      previousSampleAt = now;
+      this.#progress(
+        'downloading-model',
+        `${stageIndex === 1 ? 'Скачиваю текстовый модуль' : 'Скачиваю музыкальную модель'} · этап ${stageIndex} из ${stageCount}`,
+        `Всего около ${profile.estimatedGiB.toLocaleString('ru-RU')} ГБ; уже полученные данные сохраняются при отмене.`,
+        0.48,
+        {
+          downloadBytes: snapshot.bytes,
+          downloadBytesPerSecond: speed,
+          downloadFileCount: snapshot.fileCount,
+          downloadCompletedFiles: required.filter((relative) =>
+            fileHasContent(path.join(this.runtimeRoot, ...relative.split('/')))).length,
+          downloadExpectedFiles: required.length,
+          downloadLastActivityAt: lastActivityAt,
+          downloadStalledForSeconds: Math.max(0, Math.floor((now - lastActivityAt) / 1000)),
+          downloadStageIndex: stageIndex,
+          downloadStageCount: stageCount,
+        },
+      );
+    };
+    await emitActivity();
     await this.#run(this.#pythonExecutable(), ['-c', pythonCode], {
       cwd: this.runtimeRoot,
       env: this.#runtimeEnvironment(cacheID, false),
       stage: 'загрузка весов модели',
+      onHeartbeat: emitActivity,
     });
+    await emitActivity();
   }
 
   #requiredRelativePaths(profile) {
@@ -504,7 +552,9 @@ class StableAudioRuntime {
   async #downloadVerified(url, destination, expectedHash, label, fraction) {
     if (fs.existsSync(destination) && await sha256(destination) === expectedHash) return;
     await fsp.rm(destination, { force: true });
-    this.#progress('downloading-runtime', `Скачиваю ${label}`, 'Перед запуском Flowtone проверит SHA-256.', fraction);
+    this.#progress('downloading-runtime', `Скачиваю ${label}`, 'Перед запуском Flowtone проверит файл.', fraction, {
+      downloadBytes: 0, downloadBytesPerSecond: 0, downloadLastActivityAt: Date.now(), downloadStalledForSeconds: 0,
+    });
     const controller = new AbortController();
     let timedOut = false;
     const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, 10 * 60 * 1000);
@@ -513,7 +563,37 @@ class StableAudioRuntime {
     try {
       const response = await fetch(url, { redirect: 'follow', signal: controller.signal });
       if (!response.ok || !response.body) throw new Error(`Не удалось скачать ${label}.`);
-      await pipeline(Readable.fromWeb(response.body), fs.createWriteStream(destination, { mode: 0o600 }));
+      const totalBytes = Number(response.headers.get('content-length')) || null;
+      let downloadedBytes = 0;
+      let lastReportedBytes = 0;
+      let lastReportedAt = Date.now();
+      const meter = new Transform({
+        transform: (chunk, encoding, callback) => {
+          downloadedBytes += chunk.length;
+          const now = Date.now();
+          if (now - lastReportedAt >= 300 || downloadedBytes === totalBytes) {
+            const elapsedSeconds = Math.max((now - lastReportedAt) / 1000, 0.001);
+            this.#progress('downloading-runtime', `Скачиваю ${label}`, 'Перед запуском Flowtone проверит файл.', fraction, {
+              downloadBytes: downloadedBytes,
+              downloadBytesPerSecond: Math.max(0, downloadedBytes - lastReportedBytes) / elapsedSeconds,
+              downloadTotalBytes: totalBytes,
+              downloadLastActivityAt: now,
+              downloadStalledForSeconds: 0,
+            });
+            lastReportedAt = now;
+            lastReportedBytes = downloadedBytes;
+          }
+          callback(null, chunk);
+        },
+      });
+      await pipeline(Readable.fromWeb(response.body), meter, fs.createWriteStream(destination, { mode: 0o600 }));
+      this.#progress('downloading-runtime', `Скачиваю ${label}`, 'Загрузка завершена; проверяю файл.', fraction, {
+        downloadBytes: downloadedBytes,
+        downloadBytesPerSecond: 0,
+        downloadTotalBytes: totalBytes,
+        downloadLastActivityAt: Date.now(),
+        downloadStalledForSeconds: 0,
+      });
     } catch (error) {
       await fsp.rm(destination, { force: true });
       if (this.cancelRequested) throw new Error('Операция отменена.');
@@ -557,14 +637,30 @@ class StableAudioRuntime {
       this.activeProcess = child;
       let stderr = '';
       let stdout = '';
+      let settled = false;
+      let heartbeatBusy = false;
+      const heartbeat = async () => {
+        if (settled || heartbeatBusy || !options.onHeartbeat) return;
+        heartbeatBusy = true;
+        try { await options.onHeartbeat({ isActive: () => !settled }); } catch {}
+        finally { heartbeatBusy = false; }
+      };
+      const heartbeatTimer = options.onHeartbeat ? setInterval(heartbeat, 1000) : null;
+      heartbeatTimer?.unref();
+      const finish = (callback) => {
+        if (settled) return;
+        settled = true;
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        callback();
+      };
       child.stdout.on('data', (chunk) => { stdout = `${stdout}${chunk}`.slice(-4000); });
       child.stderr.on('data', (chunk) => { stderr = `${stderr}${chunk}`.slice(-4000); });
-      child.once('error', (error) => reject(new Error(`Не удалось запустить этап «${options.stage || 'подготовка'}»: ${error.message}`)));
+      child.once('error', (error) => finish(() => reject(new Error(`Не удалось запустить этап «${options.stage || 'подготовка'}»: ${error.message}`))));
       child.once('exit', (code) => {
-        if (this.cancelRequested) return reject(new Error('Операция отменена.'));
-        if (code === 0) return resolve(stdout);
+        if (this.cancelRequested) return finish(() => reject(new Error('Операция отменена.')));
+        if (code === 0) return finish(() => resolve(stdout));
         const message = sanitizeProcessError(stderr || stdout);
-        reject(new Error(`Этап «${options.stage || 'подготовка'}» завершился с ошибкой${message ? `: ${message}` : '.'}`));
+        finish(() => reject(new Error(`Этап «${options.stage || 'подготовка'}» завершился с ошибкой${message ? `: ${message}` : '.'}`)));
       });
     });
   }
@@ -599,8 +695,8 @@ class StableAudioRuntime {
     await fsp.rename(temp, this.manifestPath);
   }
 
-  #progress(phase, title, detail, fraction) {
-    this.onProgress({ phase, title, detail, fraction });
+  #progress(phase, title, detail, fraction, activity = {}) {
+    this.onProgress({ phase, title, detail, fraction, ...activity });
   }
 }
 
@@ -626,6 +722,31 @@ async function freeDiskBytes(target) {
   } catch {
     return null;
   }
+}
+
+async function downloadSnapshot(roots) {
+  const snapshot = { bytes: 0, fileCount: 0, latestMtimeMs: 0 };
+  const visited = new Set();
+  async function walk(candidate) {
+    const resolved = path.resolve(candidate);
+    if (visited.has(resolved)) return;
+    visited.add(resolved);
+    let entries;
+    try { entries = await fsp.readdir(resolved, { withFileTypes: true }); } catch { return; }
+    await Promise.all(entries.map(async (entry) => {
+      const entryPath = path.join(resolved, entry.name);
+      if (entry.isDirectory()) return walk(entryPath);
+      if (!entry.isFile()) return;
+      try {
+        const stat = await fsp.stat(entryPath);
+        snapshot.bytes += stat.size;
+        snapshot.fileCount += 1;
+        snapshot.latestMtimeMs = Math.max(snapshot.latestMtimeMs, stat.mtimeMs);
+      } catch {}
+    }));
+  }
+  await Promise.all([...new Set(roots.map((root) => path.resolve(root)))].map(walk));
+  return snapshot;
 }
 
 function sanitizeProcessError(value) {
@@ -664,5 +785,5 @@ function stableRuntimeHealth(runtimeRoot, pythonExecutable = path.join(runtimeRo
 
 module.exports = {
   DEFAULT_MODEL_ID, MODEL_GROUPS, MODEL_PROFILES, StableAudioRuntime, basicHardwareProfile, recommendGroup, recommendModel,
-  stableRuntimeHealth,
+  downloadSnapshot, stableRuntimeHealth,
 };

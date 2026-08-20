@@ -991,14 +991,34 @@ async function requestModelUninstall(model) {
 }
 
 function updateModelProgress(progress) {
+  const wasHidden = $('#model-progress').hidden;
   state.lastModelProgress = progress;
+  renderModelProgress();
+  if (wasHidden) requestAnimationFrame(() => $('#model-progress').scrollIntoView({ block: 'nearest' }));
+}
+
+function renderModelProgress() {
+  const progress = state.lastModelProgress;
+  if (!progress) return;
   $('#model-progress').hidden = false;
   $('#model-progress-title').textContent = progress.title;
   $('#model-progress-detail').textContent = progress.detail;
   const bar = $('#model-progress-bar');
-  if (progress.phase === 'downloading-model' || progress.phase === 'installing') {
+  const isDownload = progress.phase === 'downloading-model' || progress.phase === 'downloading-runtime';
+  const downloadTotal = Number(progress.downloadTotalBytes) || 0;
+  if (isDownload && downloadTotal > 0) {
+    bar.value = Math.min(1, Math.max(0, Number(progress.downloadBytes) || 0) / downloadTotal);
+  } else if (isDownload || progress.phase === 'installing') {
     bar.removeAttribute('value');
   } else bar.value = progress.fraction;
+  const activityRow = $('#model-progress-activity');
+  activityRow.hidden = !isDownload;
+  if (isDownload) {
+    const activity = window.FlowtoneUI.downloadActivity(progress);
+    activityRow.className = `model-progress-activity ${activity.state}`;
+    $('#model-progress-activity-label').textContent = activity.label;
+    $('#model-progress-activity-text').textContent = activity.text;
+  }
   $('#model-progress-elapsed').textContent = elapsedText(state.modelInstallationStartedAt);
 }
 
@@ -1015,7 +1035,7 @@ function ensureOperationClock() {
       setStatus(`Генерация идёт · ${elapsedText(state.generationStartedAt)} · трек появится после завершения`);
     }
     if (state.runtime?.installing) {
-      $('#model-progress-elapsed').textContent = elapsedText(state.modelInstallationStartedAt);
+      renderModelProgress();
     }
   }, 1000);
 }

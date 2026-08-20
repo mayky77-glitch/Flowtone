@@ -6,10 +6,10 @@ const os = require('node:os');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
 const { GENRES, composePrompt, createStationConfiguration, generateTitle, genreProfile, pickTempo, profileCount } = require('../src/core.cjs');
-const { DEFAULT_MODEL_ID, MODEL_GROUPS, MODEL_PROFILES, StableAudioRuntime, recommendGroup, recommendModel, stableRuntimeHealth } = require('../src/runtime.cjs');
+const { DEFAULT_MODEL_ID, MODEL_GROUPS, MODEL_PROFILES, StableAudioRuntime, downloadSnapshot, recommendGroup, recommendModel, stableRuntimeHealth } = require('../src/runtime.cjs');
 const { TrackLibrary } = require('../src/library.cjs');
 const { shouldReplaceInstalledFlowtone, terminateInstalledFlowtone } = require('../src/instance-guard.cjs');
-const { settleControlChange, userMessage } = require('../src/renderer/ui-utils.js');
+const { downloadActivity, settleControlChange, userMessage } = require('../src/renderer/ui-utils.js');
 
 test('dormant future catalog keeps hardware routing data for the postponed idea', () => {
   assert.equal(recommendModel({ memoryGiB: 8, logicalCores: 4 }), 'small-efficient');
@@ -48,6 +48,37 @@ test('public Windows runtime exposes and routes only the default minimum model',
   assert.equal(status.recommendedModel, DEFAULT_MODEL_ID);
   assert.equal(status.connectedModel, null);
   await assert.rejects(runtime.installModel('ace-max'), /только минимальная Stable Audio 3 Small/);
+});
+
+test('download snapshot measures real file changes under a Cyrillic profile path', async () => {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'Flowtone-Загрузка-'));
+  try {
+    await writeRuntimeFile(path.join(root, 'cache', 'part.bin'), Buffer.alloc(1536));
+    await writeRuntimeFile(path.join(root, 'cache', 'nested', 'weights.bin'), Buffer.alloc(2048));
+    const first = await downloadSnapshot([path.join(root, 'cache')]);
+    assert.equal(first.bytes, 3584);
+    assert.equal(first.fileCount, 2);
+    await fsp.appendFile(path.join(root, 'cache', 'part.bin'), Buffer.alloc(512));
+    const second = await downloadSnapshot([path.join(root, 'cache')]);
+    assert.equal(second.bytes, 4096);
+    assert.ok(second.latestMtimeMs >= first.latestMtimeMs);
+  } finally {
+    await fsp.rm(root, { recursive: true, force: true });
+  }
+});
+
+test('download status distinguishes active transfer, network wait and a probable stall', () => {
+  const now = Date.parse('2026-08-20T12:00:00Z');
+  const base = { downloadBytes: 64 * 1024 ** 2, downloadCompletedFiles: 1, downloadExpectedFiles: 3 };
+  const active = downloadActivity({ ...base, downloadBytesPerSecond: 2 * 1024 ** 2, downloadLastActivityAt: now - 1000 }, now);
+  assert.equal(active.state, 'active');
+  assert.match(active.text, /2\.0 МБ\/с/);
+  const waiting = downloadActivity({ ...base, downloadLastActivityAt: now - 25000 }, now);
+  assert.equal(waiting.label, 'ОЖИДАНИЕ СЕТИ');
+  assert.match(waiting.text, /0:25/);
+  const stalled = downloadActivity({ ...base, downloadLastActivityAt: now - 65000 }, now);
+  assert.equal(stalled.state, 'stalled');
+  assert.match(stalled.text, /отменить и повторить/);
 });
 
 test('old Stable Audio runtime without tokenizer is rejected even under a Cyrillic Windows profile', async () => {

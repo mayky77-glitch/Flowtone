@@ -47,7 +47,7 @@ Flowtone — бесплатное приложение для Windows и macOS �
 - выбранная владельцем тёплая retro-иконка с пластинкой;
 - MIT-лицензия исходного кода, ad-hoc signed macOS/неподписанный Windows packagers, CI обеих платформ и GitHub Release по тегу.
 
-Настоящие model weights в репозиторий, `.app` и `.exe` не входят. После личного прочтения official model/license pages приложение само скачивает Stable Audio 3 Small и подключает её; token не нужен и не сохраняется. Каждый production generation process запускается отдельно, а после одного трека освобождает память модели. Код альтернативных движков остаётся в репозитории для будущей идеи, но v1.2.3 не показывает, не устанавливает и не запускает их.
+Настоящие model weights в репозиторий, `.app` и `.exe` не входят. После личного прочтения official model/license pages приложение само скачивает Stable Audio 3 Small и подключает её; token не нужен и не сохраняется. В Windows v1.2.4 окно установки показывает фактический объём данных на диске, скорость, число готовых файлов и отдельно предупреждает, если новые байты долго не поступают. Каждый production generation process запускается отдельно, а после одного трека освобождает память модели. Код альтернативных движков остаётся в репозитории для будущей идеи, но v1.2.4 не показывает, не устанавливает и не запускает их.
 
 - [Product Requirements Document](docs/PRD.md)
 - [Музыкальная карта пресетов](docs/MUSIC-PRESETS.md)
@@ -105,6 +105,6 @@ npm start
 
 ## Сборки и публикация
 
-Каждый `push` проверяет обе платформы и сохраняет временные Actions artifacts на 14 дней. Тег вида `v1.2.3` дополнительно создаёт GitHub Release с постоянными файлами `Flowtone-Setup-Windows-x64.exe`, `Flowtone-macOS-arm64.zip` и SHA-256 для каждого файла. Подробная Windows-инструкция находится в [docs/INSTALL-WINDOWS-RU.md](docs/INSTALL-WINDOWS-RU.md).
+Каждый `push` проверяет обе платформы и сохраняет временные Actions artifacts на 14 дней. Тег вида `v1.2.4` дополнительно создаёт GitHub Release с постоянными файлами `Flowtone-Setup-Windows-x64.exe`, `Flowtone-macOS-arm64.zip` и SHA-256 для каждого файла. Подробная Windows-инструкция находится в [docs/INSTALL-WINDOWS-RU.md](docs/INSTALL-WINDOWS-RU.md).
 
 macOS bundle подписан ad-hoc, но не Developer ID и не notarized; Windows installer не подписан. Система может потребовать явное подтверждение при первом запуске. Не скачивайте Flowtone из непроверенных источников.

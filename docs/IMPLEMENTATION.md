@@ -86,7 +86,7 @@ Player поддерживает seek, начало/конец, ±15 секунд
 
 Windows-приложение находится в `windows/` и воспроизводит тот же продуктовый сценарий: параметры станции, 29 жанров, локальная коллекция, очередь `current + 2`, equal-power crossfade до 6 секунд, transport, интерактивная пластинка и управление моделями без Terminal. Desktop shell использует Electron, а официальный Windows inference path — Stable Audio 3 TFLite/LiteRT с XNNPACK на CPU.
 
-В v1.2.3 публичный runtime не выполняет автоподбор: на любом поддержанном ПК он отдаёт и запускает только экономную Small:
+В v1.2.4 публичный runtime не выполняет автоподбор: на любом поддержанном ПК он отдаёт и запускает только экономную Small:
 
 | Профиль | Условие рекомендации | DiT / decoder / precision |
 |---|---|---|
@@ -198,7 +198,7 @@ sa3 --prompt <prompt> --negative-prompt <negative> \
 - Полный Xcode не установлен; SwiftPM build/test работает через Command Line Tools.
 - Веса не входят в Git/сборку. На тестовом M4/16 ГБ official Small-Music MLX runtime установлен вне репозитория; offline 30-second benchmark прошёл за 7.68 с process wall / 4.81 с model wall с stage peak 1.69 ГБ.
 - Есть automatic verified installer для public optimized Small-Music MLX bundle; локальная UI-отметка не принимает external terms. Model weights не bundled, token не требуется и не хранится.
-- Альтернативные adapters оставлены в коде как отложенная идея, но публичный runtime v1.2.3 их не инициализирует, не показывает и не запускает.
+- Альтернативные adapters оставлены в коде как отложенная идея, но публичный runtime v1.2.4 их не инициализирует, не показывает и не запускает.
 - Скрипт создаёт `.app`, затем целиком ad-hoc подписывает готовый bundle и запускает strict deep verification. Developer ID signing/notarization остаются вне scope и требуют credentials.
 - Системная memory-pressure защита подключена через `DispatchSource`; её пороги остаются системными.
 - `leaks` smoke на работающем debug-приложении показал стабильные 24 272 байта после повторного замера через 10 секунд; app-owned Flowtone frames в отчёте не обнаружены, оставшиеся roots относятся к SwiftUI/AVFoundation listener bindings.
@@ -207,7 +207,7 @@ sa3 --prompt <prompt> --negative-prompt <negative> \
 ## Next implementation slice
 
 1. Проверить лёгкий runtime на M1/M2 с 8–16 ГБ.
-2. Вернуться к измерениям альтернативных моделей только после отдельного решения владельца; v1.2.3 публично использует только Stable Audio 3 Small.
+2. Вернуться к измерениям альтернативных моделей только после отдельного решения владельца; v1.2.4 публично использует только Stable Audio 3 Small.
 3. Developer ID signing/notarization остаются вне scope ad-hoc repository artifact; рассмотреть их только после отдельного решения владельца и получения credentials.
 
 ## Unsigned app bundle
@@ -219,4 +219,4 @@ open /tmp/flowtone-package/Flowtone.app
 
 Скрипт отказывается перезаписывать существующий bundle, включает `Assets/AppIcon.icns`, выполняет ad-hoc signing после добавления resources и не выполняет Developer ID signing/notarization.
 
-При каждом `push` CI проверяет macOS и Windows и сохраняет временные artifacts. Тег вида `v1.2.3` создаёт GitHub Release с постоянными файлами `Flowtone-macOS-arm64.zip`, `Flowtone-Setup-Windows-x64.exe` и отдельными SHA-256. Ни `.app`, ни `.exe`, ни ZIP в Git не коммитятся.
+При каждом `push` CI проверяет macOS и Windows и сохраняет временные artifacts. Тег вида `v1.2.4` создаёт GitHub Release с постоянными файлами `Flowtone-macOS-arm64.zip`, `Flowtone-Setup-Windows-x64.exe` и отдельными SHA-256. Ни `.app`, ни `.exe`, ни ZIP в Git не коммитятся.
